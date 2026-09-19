@@ -1,0 +1,283 @@
+# ==============================================================================
+# tigrs Configuration Template (config.toml)
+#
+# Place this file in:
+#   ~/.config/tigrs/config.toml (or $XDG_CONFIG_HOME/tigrs/config.toml)
+# ==============================================================================
+
+[general]
+# Number of spaces a tab character occupies (default: 8)
+tab_size = 8
+
+# Case-insensitive search: true, false, or "auto" for smart-case (default: false)
+ignore_case = false
+
+# Enable mouse support for cursor positioning and scrolling (default: false)
+mouse = false
+
+# Wrap long lines in diff, blob, and blame views (default: false)
+wrap_lines = false
+
+# Wrap search around when reaching the beginning or end of buffer (default: true)
+wrap_search = true
+
+# Line graphics drawing style: "default", "ascii", or "utf-8" (default: "default")
+# On non-UTF-8 terminals, tigrs automatically downsamples to ASCII.
+line_graphics = "default"
+
+# Horizontal scroll amount per keypress: integer columns or percentage string like "50%"
+horizontal_scroll = "50%"
+
+# Vertical split layout when viewing side-by-side: "auto", "horizontal", "vertical"
+vertical_split = "auto"
+
+# Percentage of screen height/width allocated to split child views
+split_view_height = "67%"
+split_view_width = "50%"
+
+# Automatically focus child view when opened (e.g. Enter on commit opens diff view)
+focus_child = true
+
+# Include line numbers when spawning $EDITOR or $GIT_EDITOR (default: true)
+editor_line_number = true
+
+# Maximum number of prompt and search history entries retained across sessions (default: 500)
+history_size = 500
+
+# Filesystem auto-refresh mode: "auto", "manual", or "periodic"
+refresh_mode = "auto"
+refresh_interval = 10
+
+# Read-only repository protection (default: false).
+# Launch with `--read-only` (`--ro`), set `read_only = true` here, or toggle `[R] read-only`
+# in the Options Panel (`o`) / run `:set read-only = true` (`:read-only` / `:ro`) to lock
+# the repository into Read-Only Mode (`[RO]`).
+read_only = false
+
+[view]
+# Commit ordering in main log view: "auto", "date", "reverse", "topo"
+commit_order = "auto"
+
+# Show added/deleted line prefix indicators in diff view: "auto", "yes", "no" (or boolean)
+diff_indicator = "auto"
+
+# Diff presentation style: "banner" (default 2-line box-drawn banner), "fancy" (diff-so-fancy style), or "classic" (raw git diff)
+diff_presentation = "banner"
+
+# Pin the current file's banner header at row 0 of the diff viewport while scrolling through hunks (default: true)
+diff_sticky_header = true
+
+# Auto-collapse generated files and lockfiles (linguist-generated) on initial diff load (default: true; unfold with 'za'/'zR')
+diff_collapse_generated = true
+
+# Key-hint visibility on diff banners and hunk headers: "auto" (only on selected row), "always", or "never"
+diff_hints = "auto"
+
+# Diff layout mode: "unified" or "side-by-side" (toggleable via 'v')
+diff_layout = "unified"
+
+# Diff context lines: integer (default 3) or "full" for whole-file context
+diff_context = 3
+
+# Maximum commit-wide line budget for full-file diff context expansion (default: 50000)
+diff_context_full_max_lines = 50000
+
+# Intra-line word diff highlighting in unified and side-by-side diffs (default: true; toggleable via 'w')
+word_diff = true
+
+# Word diff line pairing algorithm: "similarity" (token-similarity) or "positional" (default: "similarity")
+word_diff_pairing = "similarity"
+
+# Soft-wrap long code lines in diff view instead of horizontal clipping (default: false; toggleable via 'zW')
+wrap_lines = false
+
+# Detect and highlight relocated code blocks across diff hunks and files (default: true; toggleable via 'M')
+color_moved = true
+
+# Minimum terminal width required for side-by-side layout (default 80 columns)
+side_by_side_min_width = 80
+
+# External diff formatter command (e.g. "delta", "diff-so-fancy", or empty for native)
+diff_formatter = ""
+
+# Ignore whitespace differences in diff views: true, false, "no", "all", "some", "at-eol"
+ignore_space = false
+
+# Show line numbers in the diff view gutter: true or false (toggleable via '#' or '.' or ':set number')
+line_number = false
+
+# Main and blame view column formatting options:
+date = "default"
+author = "full"
+committer = false
+commit_title_graph = "v2"
+commit_title_refs = true
+commit_title_overflow = 0
+id = false
+file_name = "always"
+file_size = "default"
+file_filter = true
+rev_filter = true
+
+# Main view author coloring mode: "hash" (default 10-hue deterministic palette), "me" (only current user), or "off" (cycle with 'a')
+main_author_color = "hash"
+
+# Main view interactive spotlight mode: "author" (default, same author), "ancestry" (branch lineage), or "off" (cycle with '*')
+main_spotlight = "author"
+
+# Dim non-matching commits when main_spotlight is active (default: false; toggleable via '&')
+main_spotlight_dim_others = false
+
+# Dim unreachable / dangling reflog commits in Main view (default: false)
+main_dim_unreachable = false
+
+# Prefix local commits ahead of upstream with an accent '↑' indicator in Main view (default: true; toggleable via 'U')
+main_push_status = true
+
+# 6-bucket relative age heatmap coloring for the Date column in Main view (default: true)
+main_date_heat = true
+
+# Semantic subject highlighting for fixup!/squash!, Revert, WIP, breaking changes, and #123 issues (default: true)
+main_subject_rules = true
+
+# Emphasize the shortest unique SHA prefix vs dimmed trailing suffix in the ID column (default: true)
+main_unique_prefix = true
+
+# Dim routine "Merge branch..." / "Merge pull request..." subject lines in Main view (default: false)
+main_dim_merges = false
+
+# Show working tree changes automatically in main log view
+show_changes = true
+
+# Show the synthetic "Untracked changes" row in the main log view
+show_untracked = true
+
+# Show untracked files in the status view
+status_show_untracked_files = true
+status_show_untracked_dirs = true
+
+# UI view color theme (toggleable via 't' in Options Panel 'o' or ':set ui-theme = <name>')
+# Supported themes across 4 families:
+# - Adaptive:      "default" (terminal-native ANSI foreground/background)
+# - Dark:          "catppuccin-mocha", "dracula", "tokyo-night", "gruvbox-dark", "nord",
+#                  "solarized-dark", "github-dark"
+# - Light:         "catppuccin-latte", "github-light", "solarized-light", "gruvbox-light"
+# - High-Contrast: "high-contrast-dark" (WCAG AAA >= 10:1 dark), "high-contrast-light" (WCAG AAA >= 10:1 light)
+ui_theme = "default"
+
+# Code syntax highlighting in diff, blob, and blame views (default: true)
+syntax_highlighting = true
+
+# Syntax highlighting color theme (default: "Dracula"; automatically paired when cycling ui_theme)
+syntax_theme = "Dracula"
+
+[security]
+# Every repository is untrusted by default; repository hooks and fsmonitor are
+# disabled by default across all repositories.
+trust_external_hooks = false
+fsmonitor_allowed = false
+
+[performance]
+# Memory-for-speed cache profile: "greedy" (default), "balanced", or "lean".
+# - "greedy":   1,024 MiB ODB object cache, 1,024 MiB delta-base pack cache, 2,048-entry
+#               CommitDiff/DiffDocument caches, 128-entry blame cache, and ±16 speculative
+#               diff prefetch window for instant navigation on large monorepos.
+# - "balanced": 256 MiB ODB object cache, 128 MiB delta-base pack cache, 256-entry
+#               CommitDiff/DiffDocument caches, and ±3 speculative diff prefetch window.
+# - "lean":     64 MiB ODB object cache, 32 MiB delta-base pack cache, and 64 MiB
+#               in-memory LRU budgets for memory-constrained environments.
+memory_profile = "greedy"
+
+# ==============================================================================
+# Custom Keybindings
+# Supported keymaps: generic, main, diff, status, stage, blame, tree, blob
+# Actions match canonical tig action names or custom external shell commands.
+# ==============================================================================
+[keybindings]
+# Generic keybindings (inherited by all views unless overridden)
+"generic.q" = "quit"
+"generic.k" = "move-up"
+"generic.j" = "move-down"
+"generic.Up" = "move-up"
+"generic.Down" = "move-down"
+"generic.PageUp" = "move-page-up"
+"generic.PageDown" = "move-page-down"
+"generic.Home" = "move-first-line"
+"generic.End" = "move-last-line"
+"generic./" = "search"
+"generic.?" = "search-back"
+"generic.n" = "find-next"
+"generic.N" = "find-prev"
+"generic.o" = "options"
+"generic.R" = "refresh"
+"generic.e" = "edit"
+
+# Main Log View specific bindings
+"main.Enter" = "view-diff"
+"main.t" = "view-tree"
+"main.b" = "view-blame"
+"main.*" = "cycle-spotlight"
+"main.&" = "toggle-spotlight-dim"
+"main.a" = "cycle-author-color"
+"main.U" = "toggle-push-status"
+
+# Status View specific bindings
+"status.u" = "status-update"
+"status.!" = "status-revert"
+"status.Enter" = "status-diff"
+
+# Diff & Stage View specific bindings (upstream Tig parity + Tier 1 code review UX)
+"diff.@" = "chunk-toggle"
+"diff.1" = "stage-line"
+"diff.za" = "toggle-file-fold"
+"diff.zM" = "fold-all"
+"diff.zR" = "unfold-all"
+"diff.+" = "expand-hunk-context"
+"diff.=" = "expand-hunk-context"
+"diff._" = "shrink-hunk-context"
+"diff.zW" = ":toggle wrap-lines"
+"diff.M" = ":toggle color-moved"
+"diff.i" = "toggle-diff-file-details"
+"diff.y" = "yank-diff-text"
+# "diff.)" = "next-hunk"
+# "diff.(" = "prev-hunk"
+# "diff.v" = "toggle-diff-layout"
+# "diff.]" = ":toggle diff-context +1"
+# "diff.[" = ":toggle diff-context -1"
+#
+# To restore pre-0.2 tigrs hunk navigation on [ and ]:
+# "diff.[" = "prev-hunk"
+# "diff.]" = "next-hunk"
+
+# ==============================================================================
+# Color Theme Customization
+# Format: "fg bg [attr1, attr2...]"
+# Supported colors: default, black, red, green, yellow, blue, magenta, cyan, white,
+#                   color0..color255, #rrggbb (truecolor)
+# Supported attributes: bold, dim, underline, reverse, italic
+# ==============================================================================
+[colors]
+"default" = "default default"
+"cursor" = "white blue bold"
+"status" = "green default"
+"title-blur" = "white blue"
+"title-focus" = "white blue bold"
+"diff-stat" = "blue default"
+"diff-add" = "green default"
+"diff-del" = "red default"
+"diff-header" = "yellow default bold"
+"diff-index" = "blue default"
+"diff-chunk" = "magenta default"
+"graph-commit" = "blue default"
+"author" = "green default"
+"date" = "yellow default"
+
+# Optional per-author color overrides in Main view (matched by lowercase email or full name)
+[colors.authors]
+# "alice@example.com" = "cyan"
+# "Bob Maintainer" = "#ff9e64 bold"
+
+# Optional custom regex rules for highlighting commit subjects in Main view
+# [[main.subject-rules]]
+# pattern = "^SECURITY:"
+# style = "#f7768e default bold"

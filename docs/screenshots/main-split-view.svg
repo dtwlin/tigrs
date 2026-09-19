@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1023 574" width="1023" height="574">
+  <defs>
+    <style>
+      .t {
+        font-family: 'JetBrains Mono', 'Fira Code', 'Noto Sans Mono', 'DejaVu Sans Mono', 'Liberation Mono', monospace;
+        font-size: 13.5px;
+        white-space: pre;
+      }
+      .b { font-weight: 700; }
+      .d { opacity: 0.68; }
+      .i { font-style: italic; }
+      .u { text-decoration: underline; }
+      .wt {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        font-size: 12.5px;
+        font-weight: 600;
+        fill: #8b949e;
+      }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1023" height="574" fill="#0f1419"/>
+  <rect x="1" y="1" width="1021" height="572" rx="10" ry="10" fill="#0f1419" stroke="#30363d" stroke-width="1.5"/>
+  <rect x="2" y="2" width="1019" height="34" rx="9" ry="9" fill="#161b22"/>
+  <line x1="2" y1="36" x2="1021" y2="36" stroke="#30363d" stroke-width="1"/>
+  <circle cx="20" cy="19" r="6" fill="#ff5f56"/>
+  <circle cx="40" cy="19" r="6" fill="#ffbd2e"/>
+  <circle cx="60" cy="19" r="6" fill="#27c93f"/>
+  <text x="511" y="23" text-anchor="middle" class="wt">tigrs — Main View (Author Spotlight, Unpushed ↑) &amp; Split Banner Diff</text>
+  <rect x="16.0" y="110.0" width="991.2" height="18.0" fill="#d8dee9"/>
+  <rect x="16.0" y="272.0" width="991.2" height="18.0" fill="#d8dee9"/>
+  <rect x="16.0" y="290.0" width="940.8" height="18.0" fill="#d8dee9"/>
+  <rect x="956.8" y="290.0" width="42.0" height="18.0" fill="#39c5cf"/>
+  <rect x="998.8" y="290.0" width="8.4" height="18.0" fill="#d8dee9"/>
+  <rect x="16.0" y="506.0" width="352.8" height="18.0" fill="#36181e"/>
+  <rect x="368.8" y="506.0" width="50.4" height="18.0" fill="#5f0000"/>
+  <rect x="419.2" y="506.0" width="8.4" height="18.0" fill="#36181e"/>
+  <rect x="427.6" y="506.0" width="58.8" height="18.0" fill="#5f0000"/>
+  <rect x="486.4" y="506.0" width="33.6" height="18.0" fill="#36181e"/>
+  <rect x="520.0" y="506.0" width="92.4" height="18.0" fill="#5f0000"/>
+  <rect x="612.4" y="506.0" width="394.8" height="18.0" fill="#36181e"/>
+  <rect x="16.0" y="524.0" width="991.2" height="18.0" fill="#d8dee9"/>
+  <rect x="16.0" y="542.0" width="991.2" height="18.0" fill="#d8dee9"/>
+  <text x="24.4" y="51.8" fill="#6e7681" class="t">[main] main - 5 commits loaded                                                                                 [RO]</text>
+  <text x="24.4" y="69.8" fill="#d8dee9" class="t d">0s ago     Not Committed Y</text>
+  <text x="259.6" y="69.8" fill="#39c5cf" class="t b d">○</text>
+  <text x="276.4" y="69.8" fill="#bc8cff" class="t d">Untracked changes</text>
+  <text x="24.4" y="87.8" fill="#d8dee9" class="t d">0s ago     Not Committed Y</text>
+  <text x="259.6" y="87.8" fill="#39c5cf" class="t b d">○</text>
+  <text x="276.4" y="87.8" fill="#bc8cff" class="t d">Unstaged changes</text>
+  <text x="24.4" y="105.8" fill="#d8dee9" class="t d">0s ago     Not Committed Y</text>
+  <text x="259.6" y="105.8" fill="#39c5cf" class="t b d">○</text>
+  <text x="276.4" y="105.8" fill="#bc8cff" class="t d">Staged changes</text>
+  <text x="16.0" y="123.8" fill="#0f1419" class="t">▎7d ago     ● Alice Develop  ∙ ↑ [main] &lt;v0.2.0&gt; feat(security): sandbox untrusted repo drivers and hooks #48</text>
+  <text x="16.0" y="141.8" fill="#bc8cff" class="t">▎</text>
+  <text x="24.4" y="141.8" fill="#d29922" class="t">8d ago</text>
+  <text x="116.8" y="141.8" fill="#39c5cf" class="t b">● Alice Develop</text>
+  <text x="251.2" y="141.8" fill="#d29922" class="t b">●──╮</text>
+  <text x="293.2" y="141.8" fill="#f85149" class="t">[origin/main]</text>
+  <text x="410.8" y="141.8" fill="#d8dee9" class="t d">Merge branch &#39;feat/graph-lanes&#39; into main</text>
+  <text x="16.0" y="159.8" fill="#bc8cff" class="t">▎</text>
+  <text x="24.4" y="159.8" fill="#d29922" class="t">9d ago</text>
+  <text x="116.8" y="159.8" fill="#39c5cf" class="t b">● Alice Develop</text>
+  <text x="259.6" y="159.8" fill="#39c5cf" class="t b">∙</text>
+  <text x="276.4" y="159.8" fill="#d29922" class="t b">│</text>
+  <text x="293.2" y="159.8" fill="#d8dee9" class="t">security(quote): track nested $() command substitution</text>
+  <text x="755.2" y="159.8" fill="#39c5cf" class="t u">#42</text>
+  <text x="24.4" y="177.8" fill="#d8dee9" class="t d">10d ago    Bob Engineer</text>
+  <text x="259.6" y="177.8" fill="#bc8cff" class="t d">│</text>
+  <text x="268.0" y="177.8" fill="#39c5cf" class="t b d">─╯</text>
+  <text x="293.2" y="177.8" fill="#3fb950" class="t d">[feat/graph-lanes ⇄ origin]</text>
+  <text x="528.4" y="177.8" fill="#d8dee9" class="t d">perf(graph): pack 16-lane DAG rows into compact value typ</text>
+  <text x="16.0" y="195.8" fill="#bc8cff" class="t">▎</text>
+  <text x="24.4" y="195.8" fill="#d29922" class="t">12d ago</text>
+  <text x="116.8" y="195.8" fill="#39c5cf" class="t b">● Alice Develop</text>
+  <text x="259.6" y="195.8" fill="#39c5cf" class="t b">◎</text>
+  <text x="276.4" y="195.8" fill="#d29922" class="t">&lt;v0.1.0&gt;</text>
+  <text x="352.0" y="195.8" fill="#d8dee9" class="t">feat(core): initial pure-Rust repository engine</text>
+  <text x="24.4" y="285.8" fill="#0f1419" class="t">[main] line 4 of 8 (50%) | Spotlight: Alice Developer (4 of 5 loaded) - press &#39;q&#39; to quit, &#39;j&#39;/&#39;k&#39; to move</text>
+  <text x="16.0" y="303.8" fill="#0f1419" class="t b">[diff] 99b4247 — File 1 of 1 - feat(security): sandbox untrusted repo drivers and hooks #48                     [RO]</text>
+  <text x="49.6" y="321.8" fill="#d29922" class="t">Signed-off-by: Alice Developer &lt;alice@example.com&gt;</text>
+  <text x="16.0" y="357.8" fill="#d8dee9" class="t d">---</text>
+  <text x="24.4" y="375.8" fill="#d8dee9" class="t">src/path_security.rs |   21 +++++++++++++++----</text>
+  <text x="24.4" y="393.8" fill="#d8dee9" class="t b">1 file changed, 16 insertions(+), 5 deletions(-)</text>
+  <text x="16.0" y="429.8" fill="#d29922" class="t b">─ 1/1 ─ M ─ src/path_security.rs ──── +16 -5 ▏▃▏ ─  za fold  e edit  i info  y copy</text>
+  <text x="16.0" y="447.8" fill="#39c5cf" class="t b">⋯ 1 unchanged line ⋯   + expand  ] all  ┃ Rust</text>
+  <text x="24.4" y="465.8" fill="#ff79c6" class="t">use</text>
+  <text x="58.0" y="465.8" fill="#66d9ef" class="t">std</text>
+  <text x="83.2" y="465.8" fill="#ff79c6" class="t">::</text>
+  <text x="100.0" y="465.8" fill="#66d9ef" class="t">path</text>
+  <text x="133.6" y="465.8" fill="#ff79c6" class="t">::</text>
+  <text x="150.4" y="465.8" fill="#ffffff" class="t">{</text>
+  <text x="158.8" y="465.8" fill="#f8f8f2" class="t">Component, Path, PathBuf</text>
+  <text x="360.4" y="465.8" fill="#ffffff" class="t">}</text>
+  <text x="368.8" y="465.8" fill="#f8f8f2" class="t">;</text>
+  <text x="24.4" y="483.8" fill="#ff79c6" class="t">use</text>
+  <text x="58.0" y="483.8" fill="#66d9ef" class="t">std</text>
+  <text x="83.2" y="483.8" fill="#ff79c6" class="t">::</text>
+  <text x="100.0" y="483.8" fill="#66d9ef" class="t">process</text>
+  <text x="158.8" y="483.8" fill="#ff79c6" class="t">::</text>
+  <text x="175.6" y="483.8" fill="#f8f8f2" class="t">Command;</text>
+  <text x="16.0" y="519.8" fill="#f85149" class="t">-</text>
+  <text x="24.4" y="519.8" fill="#6272a4" class="t">/// Validates a repository-relative path</text>
+  <text x="368.8" y="519.8" fill="#6272a4" class="t b">before</text>
+  <text x="427.6" y="519.8" fill="#6272a4" class="t b">running</text>
+  <text x="494.8" y="519.8" fill="#6272a4" class="t">git</text>
+  <text x="528.4" y="519.8" fill="#6272a4" class="t b">operations</text>
+  <text x="612.4" y="519.8" fill="#6272a4" class="t">.</text>
+  <text x="16.0" y="537.8" fill="#0f1419" class="t">+/// Validates a repository-relative path and rejects pathspec magic or `.git`.</text>
+  <text x="16.0" y="555.8" fill="#0f1419" class="t">[diff] line 26 of 62 (41%) - src/path_security.rs</text>
+</svg>

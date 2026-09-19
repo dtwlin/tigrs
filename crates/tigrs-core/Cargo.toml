@@ -1,0 +1,35 @@
+[package]
+name = "tigrs-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+description = "Core types, configuration parsing, and utility modules for tigrs"
+rust-version.workspace = true
+readme = "../../README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+unicode-width.workspace = true
+rayon.workspace = true
+crossbeam-channel.workspace = true
+shlex.workspace = true
+memchr.workspace = true
+indexmap = { workspace = true, features = ["serde"] }
+itoa.workspace = true
+loom = { version = "0.7", optional = true }
+
+[features]
+loom = ["dep:loom"]
+

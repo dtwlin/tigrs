@@ -1,0 +1,41 @@
+[package]
+name = "tigrs-git"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+description = "High-performance Git engine and object graph traversal for tigrs"
+rust-version.workspace = true
+readme = "../../README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tigrs-core.workspace = true
+gix.workspace = true
+gix-commitgraph.workspace = true
+# Already in the tree via `gix`; used to count line terminators, which happens
+# once per blob side on the diff path.
+memchr.workspace = true
+# Git's userdiff drivers are POSIX extended regular expressions; needed to
+# reproduce its per-language hunk-header function context.
+regex.workspace = true
+rayon.workspace = true
+rustix = { workspace = true, features = ["process", "fs", "pipe"] }
+notify.workspace = true
+crossbeam-channel.workspace = true
+# Commit parent lists are almost always 0..=2 entries; inline storage avoids a
+# heap allocation per commit while streaming large histories.
+smallvec.workspace = true
+# O(1) LRU (hash index + intrusive list) for the object/tree caches.
+clru.workspace = true
+# Non-poisoning, faster-uncontended locks for the engine-wide caches.
+parking_lot.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,46 @@
+#compdef tigrs
+
+autoload -U is-at-least
+
+_tigrs() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" : \
+'-C+[Run as if tigrs was started in \`<directory>\` instead of the current working directory]:DIRECTORY:_files' \
+'--directory=[Run as if tigrs was started in \`<directory>\` instead of the current working directory]:DIRECTORY:_files' \
+'-c+[Optional configuration file path (defaults to ~/.config/tigrs/config.toml)]:CONFIG:_files' \
+'--config=[Optional configuration file path (defaults to ~/.config/tigrs/config.toml)]:CONFIG:_files' \
+'-s+[Target shell for \`completions\` subcommand (bash, zsh, fish, elvish, powershell)]:SHELL:_default' \
+'--shell=[Target shell for \`completions\` subcommand (bash, zsh, fish, elvish, powershell)]:SHELL:_default' \
+'-v[Print version]' \
+'--version[Print version]' \
+'--read-only[Launch in read-only mode (disables staging, reverting, editor, and shell mutations)]' \
+'--update-mode[Launch with repository update mode enabled (default; overrides general.read_only = true in config.toml)]' \
+'--debug-frame-stats[Hidden debug flag to log per-frame rendering metrics (bytes, duration µs, dirty rows)]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'::subcommand -- Subcommand or view mode (see Subcommands below):_default' \
+'*::rev_args -- Git revision, branch, or commit range arguments:_default' \
+&& ret=0
+}
+
+(( $+functions[_tigrs_commands] )) ||
+_tigrs_commands() {
+    local commands; commands=()
+    _describe -t commands 'tigrs commands' commands "$@"
+}
+
+if [ "$funcstack[1]" = "_tigrs" ]; then
+    _tigrs "$@"
+else
+    compdef _tigrs tigrs
+fi
