@@ -1,0 +1,58 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH tigrs 1  "tigrs 0.1.0" 
+.SH NAME
+tigrs \- Fast, memory\-safe text\-mode interface for Git written in pure Rust
+.SH SYNOPSIS
+\fBtigrs\fR [\fB\-v\fR|\fB\-\-version\fR] [\fB\-C\fR|\fB\-\-directory\fR] [\fB\-c\fR|\fB\-\-config\fR] [\fB\-s\fR|\fB\-\-shell\fR] [\fB\-\-read\-only\fR] [\fB\-\-update\-mode\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fISUBCOMMAND\fR] [\fIREV_ARGS\fR] 
+.SH DESCRIPTION
+Fast, memory\-safe text\-mode interface for Git written in pure Rust
+.SH OPTIONS
+.TP
+\fB\-v\fR, \fB\-\-version\fR
+Print version
+.TP
+\fB\-C\fR, \fB\-\-directory\fR \fI<DIRECTORY>\fR
+Run as if tigrs was started in `<directory>` instead of the current working directory
+.TP
+\fB\-c\fR, \fB\-\-config\fR \fI<CONFIG>\fR
+Optional configuration file path (defaults to ~/.config/tigrs/config.toml)
+.TP
+\fB\-s\fR, \fB\-\-shell\fR \fI<SHELL>\fR
+Target shell for `completions` subcommand (bash, zsh, fish, elvish, powershell)
+.TP
+\fB\-\-read\-only\fR
+Launch in read\-only mode (disables staging, reverting, editor, and shell mutations)
+.TP
+\fB\-\-update\-mode\fR
+Launch with repository update mode enabled (default; overrides general.read_only = true in config.toml)
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+[\fISUBCOMMAND\fR]
+Subcommand or view mode (see Subcommands below)
+.TP
+[\fIREV_ARGS\fR]
+Git revision, branch, or commit range arguments
+.SH EXTRA
+Subcommands:
+  main [rev_args...] [\-\- path...]  Browse commit history with DAG graph and split diff pane (default)
+  log [rev_args...] [\-\- path...]   Browse commit log with full messages and diffstats
+  status                           Inspect working tree status; stage, unstage, or discard changes
+  show [rev]                       Display commit header, diffstat, and patch (defaults to HEAD)
+  blame [rev] <path>               Annotate file lines with originating commit, author, and date
+  tree [rev] [path]                Browse repository directory tree at a revision (defaults to HEAD)
+  blob [rev] <path>                View syntax\-highlighted file contents at a revision
+  refs                             Browse branches, remote\-tracking refs, and tags
+  stash                            Browse and inspect Git stash entries
+  reflog [ref]                     Browse reference log entries (defaults to HEAD)
+  grep [pattern]                   Search tracked files in the working tree for a pattern
+  completions <shell>              Generate shell completions (bash, zsh, fish, elvish, powershell)
+  man                              Generate the UNIX manual page (tigrs.1) in roff format to stdout
+  version                          Print version information
+
+Piped Mode:
+  git diff | tigrs                 Read piped diff or log output from stdin in the interactive pager
+.SH VERSION
+v0.1.0

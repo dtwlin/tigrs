@@ -1,0 +1,40 @@
+[package]
+name = "tigrs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+description = "Fast, memory-safe text-mode interface for Git written in pure Rust"
+rust-version.workspace = true
+readme = "../../README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "tigrs"
+path = "src/main.rs"
+
+[dependencies]
+tigrs-core.workspace = true
+tigrs-git.workspace = true
+tigrs-ui.workspace = true
+clap.workspace = true
+crossbeam-channel.workspace = true
+rustix = { workspace = true, features = ["termios", "stdio"] }
+gix.workspace = true
+clap_complete.workspace = true
+clap_mangen.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+# Pseudo-terminal support for the end-to-end terminal handover tests.
+rustix = { workspace = true, features = ["pty", "termios", "process", "stdio"] }
+
+[features]
+default = []
+system-alloc = []

@@ -1,0 +1,44 @@
+[package]
+name = "tigrs-ui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Damage-tracked terminal UI, view stack, and event loop for tigrs"
+rust-version.workspace = true
+readme = "../../README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tigrs-core.workspace = true
+tigrs-git.workspace = true
+crossterm.workspace = true
+signal-hook.workspace = true
+rustix = { workspace = true, features = ["termios", "process", "fs", "stdio", "pipe"] }
+unicode-width.workspace = true
+thiserror.workspace = true
+crossbeam-channel.workspace = true
+syntect.workspace = true
+two-face.workspace = true
+regex.workspace = true
+# Typed bit sets for terminal cell / theme / run-command attributes.
+bitflags.workspace = true
+# Key sequences are 1..=2 keys in practice; inline storage keeps lookups
+# allocation-free.
+smallvec.workspace = true
+# Fixed-capacity, stack-only SGR parameter buffer for the render hot loop.
+arrayvec.workspace = true
+hashbrown.workspace = true
+indexmap.workspace = true
+clru.workspace = true
+itoa.workspace = true
+scopeguard.workspace = true
+
+[dev-dependencies]
+gix.workspace = true
+tempfile.workspace = true

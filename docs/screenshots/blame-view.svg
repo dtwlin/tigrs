@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1023 574" width="1023" height="574">
+  <defs>
+    <style>
+      .t {
+        font-family: 'JetBrains Mono', 'Fira Code', 'Noto Sans Mono', 'DejaVu Sans Mono', 'Liberation Mono', monospace;
+        font-size: 13.5px;
+        white-space: pre;
+      }
+      .b { font-weight: 700; }
+      .d { opacity: 0.68; }
+      .i { font-style: italic; }
+      .u { text-decoration: underline; }
+      .wt {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        font-size: 12.5px;
+        font-weight: 600;
+        fill: #8b949e;
+      }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1023" height="574" fill="#0f1419"/>
+  <rect x="1" y="1" width="1021" height="572" rx="10" ry="10" fill="#0f1419" stroke="#30363d" stroke-width="1.5"/>
+  <rect x="2" y="2" width="1019" height="34" rx="9" ry="9" fill="#161b22"/>
+  <line x1="2" y1="36" x2="1021" y2="36" stroke="#30363d" stroke-width="1"/>
+  <circle cx="20" cy="19" r="6" fill="#ff5f56"/>
+  <circle cx="40" cy="19" r="6" fill="#ffbd2e"/>
+  <circle cx="60" cy="19" r="6" fill="#27c93f"/>
+  <text x="511" y="23" text-anchor="middle" class="wt">tigrs — Per-Line Blame (b) with Synchronized Split Banner Commit Patch</text>
+  <rect x="16.0" y="218.0" width="319.2" height="18.0" fill="#d8dee9"/>
+  <rect x="16.0" y="272.0" width="991.2" height="18.0" fill="#d8dee9"/>
+  <rect x="16.0" y="290.0" width="940.8" height="18.0" fill="#d8dee9"/>
+  <rect x="956.8" y="290.0" width="42.0" height="18.0" fill="#39c5cf"/>
+  <rect x="998.8" y="290.0" width="8.4" height="18.0" fill="#d8dee9"/>
+  <rect x="16.0" y="506.0" width="352.8" height="18.0" fill="#36181e"/>
+  <rect x="368.8" y="506.0" width="50.4" height="18.0" fill="#5f0000"/>
+  <rect x="419.2" y="506.0" width="8.4" height="18.0" fill="#36181e"/>
+  <rect x="427.6" y="506.0" width="58.8" height="18.0" fill="#5f0000"/>
+  <rect x="486.4" y="506.0" width="33.6" height="18.0" fill="#36181e"/>
+  <rect x="520.0" y="506.0" width="92.4" height="18.0" fill="#5f0000"/>
+  <rect x="612.4" y="506.0" width="394.8" height="18.0" fill="#36181e"/>
+  <rect x="16.0" y="524.0" width="991.2" height="18.0" fill="#d8dee9"/>
+  <rect x="16.0" y="542.0" width="991.2" height="18.0" fill="#d8dee9"/>
+  <text x="16.0" y="51.8" fill="#6e7681" class="t">[blame] 99b4247:src/path_security.rs - 37 lines                                                                 [RO]</text>
+  <text x="16.0" y="69.8" fill="#39c5cf" class="t">13d13553 Alice Develo 2026-09-15</text>
+  <text x="310.0" y="69.8" fill="#d8dee9" class="t d">1 │</text>
+  <text x="343.6" y="69.8" fill="#6272a4" class="t">// SPDX-License-Identifier: MIT OR Apache-2.0</text>
+  <text x="16.0" y="87.8" fill="#39c5cf" class="t">13d13553 Alice Develo 2026-09-15</text>
+  <text x="310.0" y="87.8" fill="#d8dee9" class="t d">2 │</text>
+  <text x="343.6" y="87.8" fill="#ff79c6" class="t">use</text>
+  <text x="377.2" y="87.8" fill="#66d9ef" class="t">std</text>
+  <text x="402.4" y="87.8" fill="#ff79c6" class="t">::</text>
+  <text x="419.2" y="87.8" fill="#66d9ef" class="t">path</text>
+  <text x="452.8" y="87.8" fill="#ff79c6" class="t">::</text>
+  <text x="469.6" y="87.8" fill="#ffffff" class="t">{</text>
+  <text x="478.0" y="87.8" fill="#f8f8f2" class="t">Component, Path, PathBuf</text>
+  <text x="679.6" y="87.8" fill="#ffffff" class="t">}</text>
+  <text x="688.0" y="87.8" fill="#f8f8f2" class="t">;</text>
+  <text x="16.0" y="105.8" fill="#39c5cf" class="t">13d13553 Alice Develo 2026-09-15</text>
+  <text x="310.0" y="105.8" fill="#d8dee9" class="t d">3 │</text>
+  <text x="343.6" y="105.8" fill="#ff79c6" class="t">use</text>
+  <text x="377.2" y="105.8" fill="#66d9ef" class="t">std</text>
+  <text x="402.4" y="105.8" fill="#ff79c6" class="t">::</text>
+  <text x="419.2" y="105.8" fill="#66d9ef" class="t">process</text>
+  <text x="478.0" y="105.8" fill="#ff79c6" class="t">::</text>
+  <text x="494.8" y="105.8" fill="#f8f8f2" class="t">Command;</text>
+  <text x="16.0" y="123.8" fill="#39c5cf" class="t">13d13553 Alice Develo 2026-09-15</text>
+  <text x="310.0" y="123.8" fill="#d8dee9" class="t d">4 │</text>
+  <text x="16.0" y="141.8" fill="#39c5cf" class="t">99b42474 Alice Develo 2026-09-20</text>
+  <text x="310.0" y="141.8" fill="#d8dee9" class="t d">5 │</text>
+  <text x="343.6" y="141.8" fill="#6272a4" class="t">/// Validates a repository-relative path and rejects pathspec magic or `.git`.</text>
+  <text x="16.0" y="159.8" fill="#39c5cf" class="t">13d13553 Alice Develo 2026-09-15</text>
+  <text x="310.0" y="159.8" fill="#d8dee9" class="t d">6 │</text>
+  <text x="343.6" y="159.8" fill="#ff79c6" class="t">pub</text>
+  <text x="377.2" y="159.8" fill="#8be9fd" class="t">fn</text>
+  <text x="402.4" y="159.8" fill="#50fa7b" class="t">verify_relative_path</text>
+  <text x="570.4" y="159.8" fill="#f8f8f2" class="t">(</text>
+  <text x="578.8" y="159.8" fill="#ffb86c" class="t">rel_path</text>
+  <text x="646.0" y="159.8" fill="#f8f8f2" class="t">:</text>
+  <text x="662.8" y="159.8" fill="#ff79c6" class="t">&amp;</text>
+  <text x="671.2" y="159.8" fill="#f8f8f2" class="t">Path)</text>
+  <text x="721.6" y="159.8" fill="#ff79c6" class="t">-&gt; Result&lt;PathBuf, &amp;&#39;static</text>
+  <text x="956.8" y="159.8" fill="#8be9fd" class="t">str</text>
+  <text x="982.0" y="159.8" fill="#ff79c6" class="t">&gt;</text>
+  <text x="998.8" y="159.8" fill="#ffffff" class="t">{</text>
+  <text x="16.0" y="177.8" fill="#39c5cf" class="t">13d13553 Alice Develo 2026-09-15</text>
+  <text x="310.0" y="177.8" fill="#d8dee9" class="t d">7 │</text>
+  <text x="377.2" y="177.8" fill="#ff79c6" class="t">if</text>
+  <text x="402.4" y="177.8" fill="#f8f8f2" class="t">rel_path.</text>
+  <text x="478.0" y="177.8" fill="#8be9fd" class="t">is_absolute</text>
+  <text x="570.4" y="177.8" fill="#f8f8f2" class="t">()</text>
+  <text x="595.6" y="177.8" fill="#ffffff" class="t">{</text>
+  <text x="16.0" y="195.8" fill="#39c5cf" class="t">99b42474 Alice Develo 2026-09-20</text>
+  <text x="310.0" y="195.8" fill="#d8dee9" class="t d">8 │</text>
+  <text x="410.8" y="195.8" fill="#ff79c6" class="t">return</text>
+  <text x="469.6" y="195.8" fill="#66d9ef" class="t">Err</text>
+  <text x="494.8" y="195.8" fill="#f8f8f2" class="t">(</text>
+  <text x="503.2" y="195.8" fill="#f1fa8c" class="t">&quot;absolute paths are forbidden in repository operations&quot;</text>
+  <text x="965.2" y="195.8" fill="#f8f8f2" class="t">);</text>
+  <text x="16.0" y="213.8" fill="#39c5cf" class="t">13d13553 Alice Develo 2026-09-15</text>
+  <text x="310.0" y="213.8" fill="#d8dee9" class="t d">9 │</text>
+  <text x="377.2" y="213.8" fill="#ffffff" class="t">}</text>
+  <text x="16.0" y="231.8" fill="#0f1419" class="t b">99b42474 Alice Develo 2026-09-20  10 &gt;</text>
+  <text x="377.2" y="231.8" fill="#8be9fd" class="t">let</text>
+  <text x="410.8" y="231.8" fill="#f8f8f2" class="t">raw</text>
+  <text x="444.4" y="231.8" fill="#ff79c6" class="t">=</text>
+  <text x="461.2" y="231.8" fill="#f8f8f2" class="t">rel_path.</text>
+  <text x="536.8" y="231.8" fill="#8be9fd" class="t">to_string_lossy</text>
+  <text x="662.8" y="231.8" fill="#f8f8f2" class="t">();</text>
+  <text x="16.0" y="249.8" fill="#39c5cf" class="t">99b42474 Alice Develo 2026-09-20</text>
+  <text x="301.6" y="249.8" fill="#d8dee9" class="t d">11 │</text>
+  <text x="377.2" y="249.8" fill="#ff79c6" class="t">if</text>
+  <text x="402.4" y="249.8" fill="#f8f8f2" class="t">raw.</text>
+  <text x="436.0" y="249.8" fill="#8be9fd" class="t">starts_with</text>
+  <text x="528.4" y="249.8" fill="#f8f8f2" class="t">(</text>
+  <text x="536.8" y="249.8" fill="#f1fa8c" class="t">&quot;:(&quot;</text>
+  <text x="570.4" y="249.8" fill="#f8f8f2" class="t">)</text>
+  <text x="587.2" y="249.8" fill="#ff79c6" class="t">||</text>
+  <text x="612.4" y="249.8" fill="#f8f8f2" class="t">raw.</text>
+  <text x="646.0" y="249.8" fill="#8be9fd" class="t">starts_with</text>
+  <text x="738.4" y="249.8" fill="#f8f8f2" class="t">(</text>
+  <text x="746.8" y="249.8" fill="#f1fa8c" class="t">&quot;:/&quot;</text>
+  <text x="780.4" y="249.8" fill="#f8f8f2" class="t">)</text>
+  <text x="797.2" y="249.8" fill="#ffffff" class="t">{</text>
+  <text x="16.0" y="267.8" fill="#39c5cf" class="t">99b42474 Alice Develo 2026-09-20</text>
+  <text x="301.6" y="267.8" fill="#d8dee9" class="t d">12 │</text>
+  <text x="410.8" y="267.8" fill="#ff79c6" class="t">return</text>
+  <text x="469.6" y="267.8" fill="#66d9ef" class="t">Err</text>
+  <text x="494.8" y="267.8" fill="#f8f8f2" class="t">(</text>
+  <text x="503.2" y="267.8" fill="#f1fa8c" class="t">&quot;git pathspec magic prefixes are rejected&quot;</text>
+  <text x="856.0" y="267.8" fill="#f8f8f2" class="t">);</text>
+  <text x="16.0" y="285.8" fill="#0f1419" class="t">[blame] 10/37 (27%) - &quot;feat(security): sandbox untrusted repo drivers and hooks #48&quot; [Enter: diff, ,: parent, q: back]</text>
+  <text x="16.0" y="303.8" fill="#0f1419" class="t b">[diff] 99b4247 — File 1 of 1 - feat(security): sandbox untrusted repo drivers and hooks #48                     [RO]</text>
+  <text x="49.6" y="321.8" fill="#d29922" class="t">Signed-off-by: Alice Developer &lt;alice@example.com&gt;</text>
+  <text x="16.0" y="357.8" fill="#d8dee9" class="t d">---</text>
+  <text x="24.4" y="375.8" fill="#d8dee9" class="t">src/path_security.rs |   21 +++++++++++++++----</text>
+  <text x="24.4" y="393.8" fill="#d8dee9" class="t b">1 file changed, 16 insertions(+), 5 deletions(-)</text>
+  <text x="16.0" y="429.8" fill="#d29922" class="t b">─ 1/1 ─ M ─ src/path_security.rs ──── +16 -5 ▏▃▏ ─  za fold  e edit  i info  y copy</text>
+  <text x="16.0" y="447.8" fill="#39c5cf" class="t b">⋯ 1 unchanged line ⋯   + expand  ] all  ┃ Rust</text>
+  <text x="24.4" y="465.8" fill="#ff79c6" class="t">use</text>
+  <text x="58.0" y="465.8" fill="#66d9ef" class="t">std</text>
+  <text x="83.2" y="465.8" fill="#ff79c6" class="t">::</text>
+  <text x="100.0" y="465.8" fill="#66d9ef" class="t">path</text>
+  <text x="133.6" y="465.8" fill="#ff79c6" class="t">::</text>
+  <text x="150.4" y="465.8" fill="#ffffff" class="t">{</text>
+  <text x="158.8" y="465.8" fill="#f8f8f2" class="t">Component, Path, PathBuf</text>
+  <text x="360.4" y="465.8" fill="#ffffff" class="t">}</text>
+  <text x="368.8" y="465.8" fill="#f8f8f2" class="t">;</text>
+  <text x="24.4" y="483.8" fill="#ff79c6" class="t">use</text>
+  <text x="58.0" y="483.8" fill="#66d9ef" class="t">std</text>
+  <text x="83.2" y="483.8" fill="#ff79c6" class="t">::</text>
+  <text x="100.0" y="483.8" fill="#66d9ef" class="t">process</text>
+  <text x="158.8" y="483.8" fill="#ff79c6" class="t">::</text>
+  <text x="175.6" y="483.8" fill="#f8f8f2" class="t">Command;</text>
+  <text x="16.0" y="519.8" fill="#f85149" class="t">-</text>
+  <text x="24.4" y="519.8" fill="#6272a4" class="t">/// Validates a repository-relative path</text>
+  <text x="368.8" y="519.8" fill="#6272a4" class="t b">before</text>
+  <text x="427.6" y="519.8" fill="#6272a4" class="t b">running</text>
+  <text x="494.8" y="519.8" fill="#6272a4" class="t">git</text>
+  <text x="528.4" y="519.8" fill="#6272a4" class="t b">operations</text>
+  <text x="612.4" y="519.8" fill="#6272a4" class="t">.</text>
+  <text x="16.0" y="537.8" fill="#0f1419" class="t">+/// Validates a repository-relative path and rejects pathspec magic or `.git`.</text>
+  <text x="16.0" y="555.8" fill="#0f1419" class="t">[diff] line 26 of 62 (41%) - src/path_security.rs</text>
+</svg>
