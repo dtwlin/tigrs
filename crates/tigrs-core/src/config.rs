@@ -789,7 +789,7 @@ impl Config {
                     .get_mut(section_name)
                     .and_then(toml_edit::Item::as_table_mut)
             {
-                for alias in ["number", "nu", "lineno"] {
+                for alias in ["number", "nu", "lineno", "wrap", "line_wrap", "moved"] {
                     tbl.remove(alias);
                 }
             }
@@ -1249,5 +1249,207 @@ G = "move-last-line"
         assert!(!cfg.general.read_only);
         let sec_cfg = crate::SecurityConfig::new();
         assert!(!sec_cfg.is_repo_trusted(std::path::Path::new("/tmp/repo-alpha")));
+    }
+
+    #[test]
+    fn test_render_merged_toml_strips_all_view_aliases_roundtrip() {
+        let initial_toml = r#"# User comment at top
+[general]
+tab_size = 4
+
+[view]
+nu = true
+wrap = true
+moved = false
+
+[keybindings.main]
+"G" = "move-last-line"
+
+[colors]
+cursor = "black green bold"
+"#;
+        let mut cfg = Config::parse_toml(initial_toml).expect("initial parse should succeed");
+        assert!(cfg.view.line_number);
+        assert!(cfg.view.wrap_lines);
+        assert!(!cfg.view.color_moved);
+
+        let default_baseline = Config::default();
+        let (merged_min, count_min) = cfg
+            .render_merged_toml(&default_baseline, Some(initial_toml), true)
+            .expect("minimal merge should succeed");
+        assert!(count_min >= 4);
+        assert!(merged_min.contains("# User comment at top"));
+        assert!(merged_min.contains("line_number = true"));
+        assert!(merged_min.contains("wrap_lines = true"));
+        assert!(merged_min.contains("color_moved = false"));
+        assert!(!merged_min.contains("\nnu ="));
+        assert!(!merged_min.contains("\nwrap ="));
+        assert!(!merged_min.contains("\nmoved ="));
+
+        let reparsed =
+            Config::parse_toml(&merged_min).expect("merged TOML must parse without duplicate keys");
+        assert!(reparsed.view.line_number);
+        assert!(reparsed.view.wrap_lines);
+        assert!(!reparsed.view.color_moved);
+        assert_eq!(reparsed.general.tab_size, 4);
+
+        // Also test line_wrap and number/lineno aliases in non-minimal mode
+        let alias_toml = "[view]\nlineno = true\nline_wrap = true\n";
+        let (merged_full, count_full) = cfg
+            .render_merged_toml(&default_baseline, Some(alias_toml), false)
+            .expect("full merge should succeed");
+        assert!(count_full > 10);
+        let reparsed_full =
+            Config::parse_toml(&merged_full).expect("full merged TOML must parse cleanly");
+        assert!(reparsed_full.view.line_number);
+        assert!(reparsed_full.view.wrap_lines);
+
+        // Reverting options to default in minimal mode removes them; empty fresh render emits header
+        cfg = Config::default();
+        let (fresh_empty, fresh_count) = cfg
+            .render_merged_toml(&default_baseline, None, true)
+            .expect("empty minimal render should succeed");
+        assert_eq!(fresh_count, 0);
+        assert!(fresh_empty.contains("All options are currently set to built-in defaults"));
+
+        // Invalid existing TOML returns TigError::Config
+        assert!(
+            cfg.render_merged_toml(&default_baseline, Some("[broken = "), true)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_save_to_path_atomic_symlink_chain_and_permissions() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let nested_target = dir.path().join("real_cfg_dir").join("config.toml");
+        let default_baseline = Config::default();
+        let mut cfg = Config::default();
+        cfg.general.tab_size = 2;
+        cfg.view.wrap_lines = true;
+
+        // 1. Saving to a non-existent nested directory creates parents and sets 0600 permissions
+        let written = cfg
+            .save_to_path(&default_baseline, &nested_target, true)
+            .expect("save_to_path should create parent dirs");
+        assert_eq!(written, 2);
+        assert!(nested_target.exists());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&nested_target)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600);
+
+            // Set custom 0o640 permissions and create a 2-hop relative symlink chain
+            std::fs::set_permissions(&nested_target, std::fs::Permissions::from_mode(0o640))
+                .expect("set_permissions");
+            let hop1 = dir.path().join("hop1.toml");
+            let hop2 = dir.path().join("hop2.toml");
+            std::os::unix::fs::symlink("real_cfg_dir/config.toml", &hop1).expect("symlink hop1");
+            std::os::unix::fs::symlink("hop1.toml", &hop2).expect("symlink hop2");
+
+            cfg.view.line_number = true;
+            cfg.save_to_path(&default_baseline, &hop2, true)
+                .expect("save through symlink chain");
+
+            // Symlinks must remain intact and target file must be updated with preserved 0o640 mode
+            assert!(
+                std::fs::symlink_metadata(&hop2)
+                    .expect("hop2 meta")
+                    .file_type()
+                    .is_symlink()
+            );
+            assert!(
+                std::fs::symlink_metadata(&hop1)
+                    .expect("hop1 meta")
+                    .file_type()
+                    .is_symlink()
+            );
+            let updated_mode = std::fs::metadata(&nested_target)
+                .expect("target meta")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(updated_mode, 0o640);
+
+            let loaded = Config::load_from_file(&hop2).expect("load through symlink");
+            assert_eq!(loaded.general.tab_size, 2);
+            assert!(loaded.view.wrap_lines);
+            assert!(loaded.view.line_number);
+
+            // Circular symlink loop must terminate safely at the 40-hop limit
+            let loop_a = dir.path().join("loop_a.toml");
+            let loop_b = dir.path().join("loop_b.toml");
+            std::os::unix::fs::symlink("loop_b.toml", &loop_a).expect("loop_a");
+            std::os::unix::fs::symlink("loop_a.toml", &loop_b).expect("loop_b");
+            let resolved_loop = resolve_symlink_target(&loop_a);
+            assert!(
+                resolved_loop.ends_with("loop_a.toml") || resolved_loop.ends_with("loop_b.toml")
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_toml_author_colors_and_main_subject_rules() {
+        let toml_str = r##"
+[colors]
+status = { fg = "cyan", bg = "black", attributes = ["bold", "underline"] }
+
+[colors.authors]
+"Alice Developer" = "#ff79c6"
+"alice@example.com" = "cyan"
+
+[[main.subject-rules]]
+pattern = "^security:"
+fg = "red"
+bold = true
+underline = true
+
+[[main.subject-rules]]
+pattern = "^perf:"
+style = { fg = "green", dim = true, italic = true }
+
+[[main.subject-rules]]
+pattern = ""
+fg = "yellow"
+"##;
+        let cfg = Config::parse_toml(toml_str).expect("parse_toml should succeed");
+        assert_eq!(
+            cfg.author_colors.get("Alice Developer").map(String::as_str),
+            Some("#ff79c6")
+        );
+        assert_eq!(
+            cfg.author_colors
+                .get("alice@example.com")
+                .map(String::as_str),
+            Some("cyan")
+        );
+        match cfg.colors.get("status") {
+            Some(ColorSpec::Table { fg, bg, attributes }) => {
+                assert_eq!(fg, "cyan");
+                assert_eq!(bg, "black");
+                assert_eq!(
+                    attributes,
+                    &vec!["bold".to_string(), "underline".to_string()]
+                );
+            }
+            other => panic!("expected ColorSpec::Table, got {other:?}"),
+        }
+        assert_eq!(cfg.main_subject_rules.len(), 2);
+        assert_eq!(cfg.main_subject_rules[0].pattern, "^security:");
+        assert_eq!(cfg.main_subject_rules[0].fg, "red");
+        assert!(cfg.main_subject_rules[0].bold);
+        assert!(cfg.main_subject_rules[0].underline);
+        assert!(!cfg.main_subject_rules[0].dim);
+
+        assert_eq!(cfg.main_subject_rules[1].pattern, "^perf:");
+        assert_eq!(cfg.main_subject_rules[1].fg, "green");
+        assert!(cfg.main_subject_rules[1].dim);
+        assert!(cfg.main_subject_rules[1].italic);
     }
 }

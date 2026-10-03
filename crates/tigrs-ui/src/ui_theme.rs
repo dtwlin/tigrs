@@ -1111,6 +1111,23 @@ impl UiPalette {
         (bright + 0.05) / (dark + 0.05)
     }
 
+    /// Resolves a row foreground color `fg`, enforcing minimum WCAG contrast on the selected
+    /// cursor row (`7.0` AAA for `HighContrastDark`/`HighContrastLight`, `4.5` AA otherwise)
+    /// and falling back to `self.cursor_row.fg` if `fg` lacks contrast against `self.cursor_row.bg`.
+    #[must_use]
+    pub fn resolve_row_fg(&self, fg: Color, is_selected: bool) -> Color {
+        if is_selected && let Some(cursor_bg) = self.cursor_row.bg {
+            let min_ratio = match self.category {
+                ThemeCategory::HighContrastDark | ThemeCategory::HighContrastLight => 7.0,
+                ThemeCategory::Dark | ThemeCategory::Light | ThemeCategory::Adaptive => 4.5,
+            };
+            if Self::contrast_ratio(fg, cursor_bg) < min_ratio {
+                return self.cursor_row.fg.unwrap_or(fg);
+            }
+        }
+        fg
+    }
+
     /// Computes the WCAG 2.1 relative luminance `0.0 ..= 1.0` of `color`.
     #[must_use]
     pub fn relative_luminance(color: Color) -> f64 {

@@ -70,7 +70,7 @@ impl BlobView {
 
         Self {
             commit_oid,
-            path: tigrs_core::ansi::strip_control_chars(&blob.path).into_owned(),
+            path: tigrs_core::ansi::sanitize_string(blob.path),
             blob_oid: blob.oid,
             size: blob.size,
             is_binary: blob.is_binary,

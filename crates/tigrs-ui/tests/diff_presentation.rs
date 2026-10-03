@@ -3737,3 +3737,225 @@ fn test_multi_file_cpp_macro_syntax_highlighting_and_blank_line_bg() {
         add_cell.syntax_spans
     );
 }
+
+#[test]
+fn test_diff_view_side_by_side_narrow_fallback_preserves_fold_and_hunk_context() {
+    let mut diff = sample_diff();
+    let new_oid = ObjectId::from_hex(b"9999999999999999999999999999999999999999").unwrap();
+    diff.files[0].new_id = Some(new_oid);
+    diff.files[0].hunks[0].new_start = 4;
+    diff.files[0].hunks[0].old_start = 4;
+    diff.files.push(FileDiff {
+        status: FileChangeStatus::Modified,
+        path: "README.md".to_string(),
+        old_mode: Some(0o100_644),
+        new_mode: Some(0o100_644),
+        is_binary: false,
+        hunks: vec![DiffHunk {
+            old_start: 1,
+            old_len: 1,
+            new_start: 1,
+            new_len: 1,
+            func_context: None,
+            lines: vec![
+                HunkLine {
+                    kind: DiffLineKind::Remove,
+                    content: "# Old Title".to_string(),
+                    no_newline_at_eof: false,
+                },
+                HunkLine {
+                    kind: DiffLineKind::Add,
+                    content: "# New Title".to_string(),
+                    no_newline_at_eof: false,
+                },
+            ],
+        }],
+        old_id: None,
+        new_id: None,
+        additions: 1,
+        deletions: 1,
+    });
+    diff.stats.files_changed = 2;
+
+    let blob_lines: std::sync::Arc<[std::sync::Arc<str>]> = std::sync::Arc::from(vec![
+        std::sync::Arc::from("spliced_ctx_line_1"),
+        std::sync::Arc::from("spliced_ctx_line_2"),
+        std::sync::Arc::from("spliced_ctx_line_3"),
+        std::sync::Arc::from("fn main() {"),
+        std::sync::Arc::from("    println!(\"Hello new\");"),
+        std::sync::Arc::from("    let x = 42;"),
+        std::sync::Arc::from("}"),
+    ]);
+    let provider = |oid: ObjectId| -> Option<std::sync::Arc<[std::sync::Arc<str>]>> {
+        if oid == new_oid {
+            Some(std::sync::Arc::clone(&blob_lines))
+        } else {
+            None
+        }
+    };
+
+    let opts = ViewOptions {
+        diff_layout: DiffLayout::SideBySide,
+        side_by_side_min_width: 100,
+        ..Default::default()
+    };
+    let mut view = DiffView::new_with_options(diff, &opts, Some(&provider));
+
+    // 1. Fold file 1 (README.md) and expand hunk context on file 0 (src/main.rs)
+    let f1_row = view.document().file_indices[1];
+    view.set_cursor(f1_row, 25);
+    view.toggle_fold_current_file(&opts, Some(&provider), 25);
+    assert!(view.is_file_folded(1));
+
+    let f0_hunk_row = view.document().hunk_indices[0];
+    view.set_cursor(f0_hunk_row + 1, 25);
+    view.expand_current_hunk_context(3, &opts, Some(&provider), 25);
+
+    // Verify spliced context line is present in primary SideBySide document
+    assert!(
+        view.document()
+            .rows
+            .iter()
+            .any(|r| r.search_text().contains("spliced_ctx_line_1"))
+    );
+
+    // 2. Render at narrow width (80 < side_by_side_min_width=100) to trigger unified_fallback_document
+    let mut term = HeadlessTerminal::new(80, 25);
+    view.render_with_options(&mut term, 80, 25, &opts).unwrap();
+    let screen = term.screen_text();
+    assert!(
+        screen.contains("spliced_ctx_line_1"),
+        "Narrow unified fallback must preserve expanded hunk context from cached_blobs:\n{screen}"
+    );
+    assert!(
+        !screen.contains("# Old Title"),
+        "Narrow unified fallback must preserve folded state of README.md:\n{screen}"
+    );
+}
+
+#[test]
+fn test_diff_view_staging_under_fold_and_expanded_context_and_soft_wrap() {
+    let mut diff = sample_diff();
+    let new_oid = ObjectId::from_hex(b"8888888888888888888888888888888888888888").unwrap();
+    diff.files[0].new_id = Some(new_oid);
+    diff.files[0].hunks[0].new_start = 3;
+    diff.files[0].hunks[0].old_start = 3;
+
+    let blob_lines: std::sync::Arc<[std::sync::Arc<str>]> = std::sync::Arc::from(vec![
+        std::sync::Arc::from("spliced_pre_1"),
+        std::sync::Arc::from("spliced_pre_2"),
+        std::sync::Arc::from("fn main() {"),
+        std::sync::Arc::from("    println!(\"Hello new\");"),
+        std::sync::Arc::from("    let x = 42;"),
+        std::sync::Arc::from("}"),
+    ]);
+    let provider = |oid: ObjectId| -> Option<std::sync::Arc<[std::sync::Arc<str>]>> {
+        if oid == new_oid {
+            Some(std::sync::Arc::clone(&blob_lines))
+        } else {
+            None
+        }
+    };
+
+    for layout in [DiffLayout::Unified, DiffLayout::SideBySide] {
+        let opts = ViewOptions {
+            diff_layout: layout,
+            wrap_lines: true,
+            ..Default::default()
+        };
+        let mut view = DiffView::new_with_options(diff.clone(), &opts, Some(&provider));
+        let hunk_row = view.document().hunk_indices[0];
+        view.set_cursor(hunk_row + 1, 25);
+        view.expand_current_hunk_context(2, &opts, Some(&provider), 25);
+
+        // Locate the spliced context row (`spliced_pre_1`) which has `row.anchor == None`
+        let spliced_row = view
+            .document()
+            .rows
+            .iter()
+            .position(|r| r.search_text().contains("spliced_pre_1"))
+            .expect("find spliced_pre_1 row");
+        view.set_cursor(spliced_row, 25);
+
+        // `selected_hunk()` must still resolve the enclosing hunk (`file_idx = 0, hunk_idx = 0`)
+        let (f, h) = view
+            .selected_hunk()
+            .expect("selected_hunk must resolve on spliced context line");
+        assert_eq!(f.path, "src/main.rs");
+        assert_eq!(h.new_start, 3);
+        // Meanwhile `selected_line()` must remain None because a spliced context line cannot be single-line staged
+        assert!(view.selected_line().is_none());
+    }
+}
+
+#[test]
+fn test_diff_paint_soft_wrap_keeps_cursor_visible_on_screen() {
+    let mut diff = sample_diff();
+    diff.files[0].hunks[0].lines = vec![
+        HunkLine {
+            kind: DiffLineKind::Context,
+            content: "very_long_first_line_".repeat(12),
+            no_newline_at_eof: false,
+        },
+        HunkLine {
+            kind: DiffLineKind::Context,
+            content: "very_long_second_line_".repeat(12),
+            no_newline_at_eof: false,
+        },
+        HunkLine {
+            kind: DiffLineKind::Add,
+            content: "TARGET_CURSOR_LINE_VISIBLE".to_string(),
+            no_newline_at_eof: false,
+        },
+    ];
+    let opts = ViewOptions {
+        wrap_lines: true,
+        ..Default::default()
+    };
+    let mut view = DiffView::new_with_options(diff, &opts, None);
+    let target_idx = view
+        .document()
+        .rows
+        .iter()
+        .position(|r| r.search_text().contains("TARGET_CURSOR_LINE_VISIBLE"))
+        .expect("find target row");
+
+    // Viewport height = 10 (visible_height = 8). Without soft-wrap scroll compensation, the two
+    // 250-char lines above `target_idx` would consume >12 wrapped screen rows at width=50 and
+    // push `TARGET_CURSOR_LINE_VISIBLE` completely off the bottom of the screen.
+    view.set_cursor(target_idx, 8);
+    let mut term = HeadlessTerminal::new(50, 10);
+    view.render_with_options(&mut term, 50, 10, &opts).unwrap();
+    let screen = term.screen_text();
+    assert!(
+        screen.contains("TARGET_CURSOR_LINE_VISIBLE"),
+        "Soft-wrapped paint_diff must advance effective scroll_offset so cursor remains visible:\n{screen}"
+    );
+}
+
+#[test]
+fn test_external_diff_formatter_fallback_and_read_only_guard() {
+    let diff = sample_diff();
+
+    // 1. Failing external command falls back cleanly to internal layout
+    let opts_fail = ViewOptions {
+        diff_formatter: "false".to_string(),
+        ..Default::default()
+    };
+    let view_fallback = DiffView::new_with_options(diff.clone(), &opts_fail, None);
+    assert!(!view_fallback.document().is_empty());
+
+    // 2. Valid external command (`cat`) succeeds when read_only = false, and is bypassed when read_only = true
+    let opts_cat = ViewOptions {
+        diff_formatter: "cat".to_string(),
+        read_only: false,
+        ..Default::default()
+    };
+    let view_ext = DiffView::new_with_options(diff.clone(), &opts_cat, None);
+    assert!(!view_ext.document().is_empty());
+
+    let mut opts_ro = opts_cat;
+    opts_ro.read_only = true;
+    let view_ro = DiffView::new_with_options(diff, &opts_ro, None);
+    assert!(!view_ro.document().is_empty());
+}

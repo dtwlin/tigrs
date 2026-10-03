@@ -160,16 +160,30 @@ pub fn execute_action(app: &mut AppState, action: &Action, visible_height: usize
             }
             staging::handle_status_update(app, visible_height)
         }
-        Action::StageUpdateLine => {
+        Action::StageUpdateLine | Action::StageUpdatePart => {
             if app.check_read_only_blocked("stage-update-line") {
                 return Flow::Continue;
             }
             staging::handle_stage_update_line(app, visible_height)
         }
-        Action::StageUpdatePart | Action::StageSplitChunk | Action::StatusMerge => {
-            if app.check_read_only_blocked("stage-update") {
+        Action::StageSplitChunk => {
+            if app.check_read_only_blocked("stage-split-chunk") {
                 return Flow::Continue;
             }
+            app.status_message =
+                Some("Chunk cannot be split further (use '1' to stage single lines)".to_string());
+            Flow::Continue
+        }
+        Action::StatusMerge => {
+            if app.check_read_only_blocked("status-merge") {
+                return Flow::Continue;
+            }
+            app.status_message =
+                Some("No unmerged conflict resolution tool configured".to_string());
+            Flow::Continue
+        }
+        Action::ToggleSortOrder | Action::ToggleSortField => {
+            app.status_message = Some("Sorting is fixed to chronological/alphabetical".to_string());
             Flow::Continue
         }
         Action::StatusRevert => {

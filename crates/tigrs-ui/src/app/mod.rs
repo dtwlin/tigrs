@@ -1397,10 +1397,7 @@ fn refresh_after_editor(app: &mut AppState, (width, height): (u16, u16)) {
     {
         let (_src, token) = CancellationToken::new();
         if let Ok(report) = eng.load_status(&token) {
-            let old_cursor = status.cursor_index();
-            let mut new_status = StatusView::new(report);
-            new_status.set_cursor(old_cursor, visible);
-            *status = new_status;
+            status.refresh(report);
         }
     }
 }

@@ -753,16 +753,18 @@ fn test_snapshot_full_view_stack_transitions() {
     term.assert_line_contains(1, "..");
     term.assert_line_contains(2, "main.rs");
 
-    // Step 5: Down to 'main.rs', then Enter -> BlobView
+    // Step 5: Down to 'main.rs', then Enter -> BlobView (split with TreeView)
     tigrs_ui::handle_event(&key(KeyCode::Down), &mut app, 24);
     let flow = tigrs_ui::handle_event(&key(KeyCode::Enter), &mut app, 24);
     assert_eq!(flow, Flow::Continue);
     assert_eq!(app.active_view(), Some(ViewKind::Blob));
     term.clear();
+    app.invalidate_screen();
     render_active(&app, &mut term, 80, 24).unwrap();
-    term.assert_line_contains(0, "[blob]");
-    term.assert_line_contains(0, "src/main.rs");
-    term.assert_line_contains(2, "println!(\"v2\")");
+    term.assert_line_contains(0, "[tree]");
+    term.assert_line_contains(12, "[blob]");
+    term.assert_line_contains(12, "src/main.rs");
+    term.assert_line_contains(14, "println!(\"v2\")");
 
     // Step 6: 'b' -> BlameView
     let flow = tigrs_ui::handle_event(&key(KeyCode::Char('b')), &mut app, 24);
@@ -1585,7 +1587,7 @@ fn test_headless_grep_view_enter_opens_blob_view() {
     render_active(&app, &mut term, 80, 24).expect("render grep");
     term.assert_line_contains(1, "tracked.txt:1");
 
-    // Press Enter on grep match -> opens BlobView
+    // Press Enter on grep match -> opens BlobView in split mode
     let flow = tigrs_ui::handle_event(&key(KeyCode::Enter), &mut app, 24);
     assert_eq!(flow, Flow::Continue);
     assert_eq!(app.active_view(), Some(ViewKind::Blob));
@@ -1595,9 +1597,11 @@ fn test_headless_grep_view_enter_opens_blob_view() {
     assert_eq!(blob.cursor(), 0);
 
     term.clear();
-    render_active(&app, &mut term, 80, 24).expect("render blob");
-    term.assert_line_contains(0, "[blob]");
-    term.assert_line_contains(1, "v1");
+    app.invalidate_screen();
+    render_active(&app, &mut term, 80, 24).unwrap();
+    term.assert_line_contains(1, "tracked.txt:1");
+    term.assert_line_contains(12, "[blob]");
+    term.assert_line_contains(13, "v1");
 
     // Press 'q' to return to GrepView
     let flow = tigrs_ui::handle_event(&key(KeyCode::Char('q')), &mut app, 24);

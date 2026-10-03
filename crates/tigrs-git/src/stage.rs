@@ -481,6 +481,14 @@ pub fn apply_patch_bytes(
     cmd.arg("apply");
     if cached {
         cmd.arg("--cached");
+    } else {
+        // In upstream C `git` (`builtin/apply.c` + `attr.c:read_attr`), running `git apply`
+        // without `--cached` or `--index` leaves `istate == NULL` and passes `NULL` into
+        // `convert_to_working_tree` -> `git_check_attr`. When `GIT_ATTR_SOURCE` is set,
+        // `read_attr` calls `read_attr_from_tree(istate->repo, ...)` and dereferences
+        // `NULL->repo` (`SIGSEGV`). Worktree `.gitattributes` and `.git/info/attributes`
+        // drivers are already neutralized via `-c filter.<name>.*=` in `safe_git_command`.
+        cmd.env_remove("GIT_ATTR_SOURCE");
     }
     cmd.args(["--unidiff-zero", "--whitespace=nowarn"]);
     if reverse {
@@ -573,6 +581,23 @@ pub fn unstage_hunk_bytes(work_dir: &Path, raw_path: &[u8], hunk: &DiffHunk) -> 
 pub fn unstage_hunk(work_dir: &Path, path: &str, hunk: &DiffHunk) -> Result<()> {
     crate::path_security::verify_relative_path(path)?;
     unstage_hunk_bytes(work_dir, path.as_bytes(), hunk)
+}
+
+/// Discards a single unstaged hunk in the working tree using raw path bytes.
+pub fn discard_hunk_bytes(work_dir: &Path, raw_path: &[u8], hunk: &DiffHunk) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        crate::path_security::verify_relative_os_path(std::ffi::OsStr::from_bytes(raw_path))?;
+    }
+    let hunk_patch = synthesize_hunk_patch_bytes(raw_path, hunk);
+    apply_patch_bytes(work_dir, &hunk_patch, true, false)
+}
+
+/// Discards a single unstaged hunk in the working tree.
+pub fn discard_hunk(work_dir: &Path, path: &str, hunk: &DiffHunk) -> Result<()> {
+    crate::path_security::verify_relative_path(path)?;
+    discard_hunk_bytes(work_dir, path.as_bytes(), hunk)
 }
 
 /// Stages one or more lines within a hunk into the index using raw path bytes.
@@ -1368,5 +1393,132 @@ mod tests {
         let staged_hunk = &staged_diff.files[0].hunks[0];
         unstage_hunk(&path, "crlf_input.txt", staged_hunk)
             .expect("unstage_hunk under autocrlf=input");
+    }
+
+    #[test]
+    fn test_partial_line_staging_no_newline_at_eof() {
+        let (_dir, path) = create_test_repo();
+        let file_path = path.join("no_eof_nl.txt");
+
+        // Commit file without trailing newline: "line1\nold_eof" (no \n at end)
+        fs::write(&file_path, b"line1\nold_eof").expect("write initial");
+        stage_file(&path, "no_eof_nl.txt", None).expect("stage initial");
+        let status = Command::new("git")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(["commit", "-m", "commit no_eof_nl.txt"])
+            .current_dir(&path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        // Replace old_eof (no newline) with added_1\nadded_2 (no newline)
+        fs::write(&file_path, b"line1\nadded_1\nadded_2").expect("write modified");
+
+        let unstaged_item = crate::status::StatusItem::new(
+            'M',
+            crate::status::StatusSection::Unstaged,
+            "no_eof_nl.txt",
+            None,
+        );
+        let diff =
+            crate::status::compute_status_item_diff(&path, &unstaged_item).expect("unstaged diff");
+        let hunk = &diff.files[0].hunks[0];
+
+        // Find the first Add line (`added_1`) while leaving the Remove line (`old_eof`, which has no_newline_at_eof=true) unselected!
+        // This exercises `is_last_old && !is_last_new` in `synthesize_lines_patch_directed_bytes`.
+        let first_add_idx = hunk
+            .lines
+            .iter()
+            .position(|l| l.kind == DiffLineKind::Add && l.content == "added_1")
+            .expect("find added_1");
+        stage_lines(&path, "no_eof_nl.txt", hunk, &[first_add_idx])
+            .expect("stage single added line after no-newline-at-eof deletion");
+
+        // Also test unstaging when an unselected Add line has no_newline_at_eof (`is_last_new && !is_last_old`):
+        // Stage the entire file first, then unstage only `old_eof` (the Remove line).
+        stage_file(&path, "no_eof_nl.txt", None).expect("stage full file");
+        let staged_item = crate::status::StatusItem::new(
+            'M',
+            crate::status::StatusSection::Staged,
+            "no_eof_nl.txt",
+            None,
+        );
+        let staged_diff =
+            crate::status::compute_status_item_diff(&path, &staged_item).expect("staged diff");
+        let shunk = &staged_diff.files[0].hunks[0];
+        let del_idx = shunk
+            .lines
+            .iter()
+            .position(|l| l.kind == DiffLineKind::Remove)
+            .expect("find remove line");
+        unstage_lines(&path, "no_eof_nl.txt", shunk, &[del_idx])
+            .expect("unstage remove line when unselected add has no-newline-at-eof");
+    }
+
+    #[test]
+    fn test_stage_and_unstage_lines_with_raw_control_bytes() {
+        let (_dir, path) = create_test_repo();
+        let file_path = path.join("formfeed.txt");
+
+        // Commit a file containing ASCII form-feed (\x0c) control characters, which
+        // `strip_control_chars` strips from UI `HunkLine.content` while `record_raw_hunk_line`
+        // preserves the raw bytes for patch synthesis.
+        fs::write(&file_path, b"header\x0cpage1\nold\x0cline\nfooter\n").expect("write");
+        stage_file(&path, "formfeed.txt", None).expect("stage");
+        let status = Command::new("git")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(["commit", "-m", "add formfeed.txt"])
+            .current_dir(&path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        fs::write(
+            &file_path,
+            b"header\x0cpage1\nnew\x0cline_a\nnew\x0cline_b\nfooter\n",
+        )
+        .expect("write modified");
+
+        let unstaged_item = crate::status::StatusItem::new(
+            'M',
+            crate::status::StatusSection::Unstaged,
+            "formfeed.txt",
+            None,
+        );
+        let diff =
+            crate::status::compute_status_item_diff(&path, &unstaged_item).expect("unstaged diff");
+        let hunk = &diff.files[0].hunks[0];
+        // Verify UI content stripped \x0c while raw bytes were recorded
+        assert!(!hunk.lines[0].content.contains('\x0c'));
+
+        // Stage a single line (`new\x0cline_a`)
+        let add_idx = hunk
+            .lines
+            .iter()
+            .position(|l| l.kind == DiffLineKind::Add)
+            .expect("add line");
+        stage_line(&path, "formfeed.txt", hunk, add_idx)
+            .expect("stage_line on file with form-feed control bytes");
+
+        // Now stage the remaining hunk and unstage it
+        let diff2 =
+            crate::status::compute_status_item_diff(&path, &unstaged_item).expect("unstaged diff2");
+        stage_hunk(&path, "formfeed.txt", &diff2.files[0].hunks[0])
+            .expect("stage_hunk on file with form-feed control bytes");
+
+        let staged_item = crate::status::StatusItem::new(
+            'M',
+            crate::status::StatusSection::Staged,
+            "formfeed.txt",
+            None,
+        );
+        let staged_diff =
+            crate::status::compute_status_item_diff(&path, &staged_item).expect("staged diff");
+        unstage_hunk(&path, "formfeed.txt", &staged_diff.files[0].hunks[0])
+            .expect("unstage_hunk on file with form-feed control bytes");
     }
 }

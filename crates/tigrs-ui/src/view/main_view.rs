@@ -368,6 +368,8 @@ pub struct MainView {
     /// part of the app needs to react to.
     total_commits: Arc<AtomicUsize>,
     now_secs: i64,
+    /// Optional 0-based initial target line from CLI `+N` argument, applied once enough rows stream in.
+    initial_target_line: Option<usize>,
 }
 
 impl MainView {
@@ -406,7 +408,13 @@ impl MainView {
             is_loading: true,
             total_commits: Arc::new(AtomicUsize::new(TOTAL_UNKNOWN)),
             now_secs: now,
+            initial_target_line: None,
         }
+    }
+
+    /// Sets a 0-based initial target line (from CLI `+N`), jumped to once enough commits stream in.
+    pub fn set_initial_target_line(&mut self, line: usize) {
+        self.initial_target_line = Some(line);
     }
 
     /// Configures the current Git user identity (`user.name` and `user.email`) for `"me"` commit highlighting (`P3`).
@@ -821,6 +829,13 @@ impl MainView {
         }
         self.commits.extend(batch);
         *self.ancestry_cache.borrow_mut() = None;
+        if let Some(target_line) = self.initial_target_line {
+            let len = self.changes.len() + self.commits.len();
+            if len > target_line {
+                self.nav.set_cursor(target_line, len, 24);
+                self.initial_target_line = None;
+            }
+        }
     }
 
     /// Looks up a commit index in $O(1)$ time using the index-only hash table.
@@ -870,6 +885,12 @@ impl MainView {
     /// Marks that commit streaming has finished.
     pub fn set_finished(&mut self) {
         self.is_loading = false;
+        if let Some(target_line) = self.initial_target_line.take() {
+            let len = self.changes.len() + self.commits.len();
+            if len > 0 {
+                self.nav.set_cursor(target_line.min(len - 1), len, 24);
+            }
+        }
     }
 
     /// Returns the total number of loaded commits.
@@ -1315,7 +1336,14 @@ impl MainView {
         } else {
             RESET_ANSI
         };
-        let paint_columns = use_color && (!is_selected || use_colored_cursor);
+        let paint_columns = use_color
+            && (!is_selected
+                || (use_colored_cursor
+                    && !matches!(
+                        palette.category,
+                        crate::ui_theme::ThemeCategory::HighContrastDark
+                            | crate::ui_theme::ThemeCategory::HighContrastLight
+                    )));
 
         let commit_idx = self.commit_index(row_idx);
         let meta = commit_idx

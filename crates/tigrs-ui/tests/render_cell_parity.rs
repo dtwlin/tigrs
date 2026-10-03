@@ -356,3 +356,87 @@ fn test_split_view_vertical_and_horizontal_damage_equivalence() {
         }
     }
 }
+
+#[test]
+fn test_all_14_themes_across_4_color_profiles_and_high_contrast_cursor_legibility() {
+    use tigrs_core::UiThemeId;
+    use tigrs_ui::ui_theme::{ThemeCategory, UiPalette};
+
+    let width = 100u16;
+    let height = 20u16;
+
+    let mut app = AppState::default();
+    let mut main_view = MainView::new("main".to_string());
+    main_view.append_commits(build_unicode_commits());
+    app.views.main_view = Some(main_view);
+    app.views.view_stack.push(ViewKind::Main);
+
+    for &theme_id in UiThemeId::ALL {
+        app.options.ui_theme = theme_id;
+        let palette = UiPalette::for_theme(theme_id);
+
+        for profile in [
+            ColorProfile::TrueColor,
+            ColorProfile::Ansi256,
+            ColorProfile::Ansi16,
+            ColorProfile::Monochrome,
+        ] {
+            app.caps.color_profile = profile;
+            app.renderer.borrow_mut().invalidate();
+            let mut term = HeadlessTerminal::new(width, height);
+            let mut bytes = Vec::new();
+            render_active(&app, &mut bytes, width, height).unwrap();
+            term.write_all(&bytes).unwrap();
+
+            // In TrueColor HighContrastDark / HighContrastLight, verify cursor row (row 1)
+            // enforces >= 7.0 WCAG AAA contrast ratio on all non-space text cells.
+            if profile == ColorProfile::TrueColor
+                && matches!(
+                    palette.category,
+                    ThemeCategory::HighContrastDark | ThemeCategory::HighContrastLight
+                )
+            {
+                let cursor_cells = term.line_cells(1).unwrap();
+                for (col, cell) in cursor_cells.iter().enumerate() {
+                    if !cell.ch.is_whitespace()
+                        && cell.ch != '\0'
+                        && let (Some(fg), Some(bg)) = (cell.fg, cell.bg)
+                    {
+                        let ratio = UiPalette::contrast_ratio(fg, bg);
+                        assert!(
+                            ratio >= 7.0,
+                            "Theme {:?} cursor row col {} ({:?}) fg={:?} bg={:?} contrast {:.2} < 7.0",
+                            theme_id,
+                            col,
+                            cell.ch,
+                            fg,
+                            bg,
+                            ratio
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_all_views_narrow_terminal_widths_no_panic() {
+    let mut app = AppState::default();
+    let mut main_view = MainView::new("main".to_string());
+    main_view.append_commits(build_unicode_commits());
+    app.views.main_view = Some(main_view);
+    app.views.diff_view = Some(DiffView::new(build_sample_diff()));
+
+    for view_kind in [ViewKind::Main, ViewKind::Diff, ViewKind::Help] {
+        app.views.view_stack.clear();
+        app.views.view_stack.push(view_kind);
+        for width in [1u16, 5, 12, 20, 40] {
+            app.renderer.borrow_mut().invalidate();
+            let mut term = HeadlessTerminal::new(width, 10);
+            let mut bytes = Vec::new();
+            render_active(&app, &mut bytes, width, 10).unwrap();
+            term.write_all(&bytes).unwrap();
+        }
+    }
+}

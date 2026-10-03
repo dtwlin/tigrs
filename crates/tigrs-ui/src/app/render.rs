@@ -655,7 +655,9 @@ pub(crate) fn apply_ui_palette_to_terminal(
                         | crate::headless::Color::BrightWhite
                         | crate::headless::Color::Black,
                     ) => palette.cursor_row.fg,
-                    Some(fg) => map_semantic_fg(fg, &palette).or(palette.cursor_row.fg),
+                    Some(fg) => map_semantic_fg(fg, &palette)
+                        .map(|c| palette.resolve_row_fg(c, true))
+                        .or(palette.cursor_row.fg),
                 };
             } else {
                 if cell.bg.is_none() && palette.canvas_bg.is_some() {

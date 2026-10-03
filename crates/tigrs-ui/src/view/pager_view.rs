@@ -9,7 +9,6 @@ use crossterm::queue;
 use crossterm::style::{Attribute, SetAttribute};
 use std::io::Write;
 use tigrs_core::error::Result;
-use unicode_width::UnicodeWidthStr;
 
 /// Interactive text pager view component.
 #[derive(Debug)]
@@ -22,10 +21,7 @@ pub struct PagerView {
 impl PagerView {
     /// Creates a new `PagerView` with a title and lines of text.
     pub fn new(title: String, lines: Vec<String>) -> Self {
-        let clean_title = match tigrs_core::ansi::strip_control_chars(&title) {
-            std::borrow::Cow::Borrowed(_) => title,
-            std::borrow::Cow::Owned(clean) => clean,
-        };
+        let clean_title = tigrs_core::ansi::sanitize_string(title);
         let clean_lines = lines
             .into_iter()
             .map(|l| match tigrs_core::ansi::filter_sgr_only(&l) {
@@ -121,9 +117,12 @@ impl PagerView {
         height: usize,
         options: &crate::options::ViewOptions,
     ) -> Result<()> {
+        use std::fmt::Write as _;
+
         let content_height = height.saturating_sub(2);
         let start = self.scroll_offset();
         let end = (start + content_height).min(self.lines.len());
+        let mut num_buf = String::with_capacity(16);
 
         for row_idx in 0..content_height {
             let item_idx = start + row_idx;
@@ -137,16 +136,24 @@ impl PagerView {
                     queue!(w, SetAttribute(Attribute::Reverse))?;
                 }
 
-                let line_num = format!("{:>5} ", item_idx + 1);
-                let num_len = line_num.len();
+                num_buf.clear();
+                let _ = write!(num_buf, "{:>5} ", item_idx + 1);
+                let num_len = num_buf.len();
                 let rem = width.saturating_sub(num_len);
 
                 let expanded = crate::diff::expand_tabs(text, options.tab_size);
-                let text_col = tigrs_core::ansi::truncate_display_width(&expanded, rem);
+                let mut text_col = tigrs_core::ansi::truncate_visible_width(&expanded, rem);
+                if is_selected && (text_col.contains("\x1b[0m") || text_col.contains("\x1b[m")) {
+                    text_col = text_col
+                        .replace("\x1b[0m", "\x1b[0;7m")
+                        .replace("\x1b[m", "\x1b[0;7m");
+                }
 
-                let line = format!("{line_num}{text_col}");
-                let line_width = UnicodeWidthStr::width(line.as_str());
-                write!(w, "{line}")?;
+                let line_width = num_len + tigrs_core::ansi::visible_width(&text_col);
+                write!(w, "{num_buf}{text_col}")?;
+                if is_selected {
+                    write!(w, "\x1b[7m")?;
+                }
                 super::write_line_el_or_pad(w, width.saturating_sub(line_width), is_selected)?;
 
                 if is_selected {
@@ -195,13 +202,17 @@ impl super::View for PagerView {
     }
 
     fn matches_search(&self, index: usize, pat: &crate::search::SearchPattern) -> bool {
-        self.row_text(index).is_some_and(|text| pat.is_match(&text))
+        self.lines.get(index).is_some_and(|text| {
+            let clean = tigrs_core::ansi::strip_control_chars(text);
+            pat.is_match(&clean)
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::view::View;
 
     #[test]
     fn test_pager_view_navigation_and_render() {
@@ -324,5 +335,40 @@ mod tests {
         let mut buf = Vec::new();
         view.render(&mut buf, 20, 5).expect("render narrow");
         assert!(!buf.is_empty());
+    }
+
+    #[test]
+    fn test_pager_view_ansi_sgr_truncation_and_search() {
+        let lines = vec![
+            "\x1b[38;2;255;0;0mfoo\x1b[0m\x1b[32mbar\x1b[0m baz".to_string(),
+            "\x1b[33msecond\x1b[0m line".to_string(),
+        ];
+        let view = PagerView::new("ansi\x1b[2Jpager".to_string(), lines);
+        assert_eq!(view.title(), "ansipager");
+
+        // Search across SGR boundary ("foobar") must match after stripping ANSI
+        let pat_foobar = crate::search::SearchPattern::new("foobar", Some(false));
+        assert!(view.matches_search(0, &pat_foobar));
+
+        // Search for raw SGR sequence digits ("38;2") must NOT match
+        let pat_sgr = crate::search::SearchPattern::new("38;2", Some(false));
+        assert!(!view.matches_search(0, &pat_sgr));
+
+        // Render into a 20x5 HeadlessTerminal and verify full visible text and cursor reverse video
+        let mut term = crate::headless::HeadlessTerminal::new(20, 5);
+        view.render(&mut term, 20, 5).unwrap();
+        let row1 = term.line_text(1);
+        assert!(
+            row1.contains("foobar baz"),
+            "ANSI SGR bytes should not consume visible column width: {row1:?}"
+        );
+        // Selected row (row 1) should retain reverse video across the embedded \x1b[0m reset
+        for col in 0..20 {
+            let cell = term.cell(col, 1).unwrap();
+            assert!(
+                cell.attrs.contains(crate::headless::CellAttrs::REVERSE),
+                "Cell at col {col} lost REVERSE video after SGR reset: {cell:?}"
+            );
+        }
     }
 }

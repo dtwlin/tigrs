@@ -112,3 +112,43 @@ fn test_section_diff_is_empty_when_section_is_empty() {
         .expect("untracked diff");
     assert!(untracked.files.is_empty());
 }
+
+#[test]
+#[cfg(unix)]
+fn test_type_changed_regular_file_to_symlink_status_and_diff() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path();
+    git(path, &["init", "-b", "main"]);
+    git(path, &["config", "user.email", "section@example.com"]);
+    git(path, &["config", "user.name", "Section Tester"]);
+
+    fs::write(path.join("target.txt"), "real content\n").expect("write target");
+    fs::write(path.join("entry.txt"), "regular file content\n").expect("write entry");
+    git(path, &["add", "target.txt", "entry.txt"]);
+    git(path, &["commit", "-m", "initial regular files"]);
+
+    // Replace regular file `entry.txt` with a Unix symlink pointing to `target.txt`
+    fs::remove_file(path.join("entry.txt")).expect("remove regular file");
+    std::os::unix::fs::symlink("target.txt", path.join("entry.txt")).expect("create symlink");
+
+    let engine = GitEngine::open(Some(path)).expect("open repo");
+    let (_src, token) = CancellationToken::new();
+    let report = engine.load_status(&token).expect("load_status");
+
+    assert_eq!(report.unstaged.len(), 1);
+    assert_eq!(report.unstaged[0].path, "entry.txt");
+    assert_eq!(report.unstaged[0].status_code, 'T');
+
+    let item_diff = engine
+        .compute_status_item_diff(&report.unstaged[0])
+        .expect("compute_status_item_diff on TypeChanged item");
+    // Git emits a 2-part diff for TypeChanged (100644 deletion + 120000 symlink creation)
+    assert_eq!(item_diff.files.len(), 2);
+    assert!(item_diff.files.iter().all(|f| f.path == "entry.txt"));
+
+    let section_diff = engine
+        .compute_status_section_diff(StatusSection::Unstaged, &report.unstaged)
+        .expect("compute_status_section_diff on TypeChanged section");
+    assert_eq!(section_diff.files.len(), 2);
+    assert!(section_diff.files.iter().all(|f| f.path == "entry.txt"));
+}

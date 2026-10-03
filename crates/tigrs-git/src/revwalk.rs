@@ -140,6 +140,37 @@ fn pathspec_changed_merkle(
     false
 }
 
+fn commit_treesame_modifies_pathspecs(
+    repo: &gix::Repository,
+    new_tree_oid: ObjectId,
+    parents: &[ObjectId],
+    pathspecs: &[String],
+) -> bool {
+    if parents.is_empty() {
+        return pathspecs
+            .iter()
+            .any(|ps| pathspec_changed_merkle(repo, None, new_tree_oid, ps));
+    }
+
+    let mut parent_trees =
+        smallvec::SmallVec::<[Option<ObjectId>; 2]>::with_capacity(parents.len());
+    for parent_id in parents {
+        let old_tree_oid = repo.find_object(*parent_id).ok().and_then(|p| {
+            gix::objs::CommitRef::from_bytes(&p.data, parent_id.kind())
+                .ok()
+                .map(|c| c.tree())
+        });
+        parent_trees.push(old_tree_oid);
+    }
+
+    // Git TREESAME rule: a commit modifies pathspec `ps` iff `ps` differs from EVERY parent's tree.
+    pathspecs.iter().any(|ps| {
+        parent_trees
+            .iter()
+            .all(|&old_tree_oid| pathspec_changed_merkle(repo, old_tree_oid, new_tree_oid, ps))
+    })
+}
+
 /// Checks if an already loaded commit modified any file matching the given pathspecs.
 pub fn commit_object_modifies_pathspecs(
     repo: &gix::Repository,
@@ -154,30 +185,7 @@ pub fn commit_object_modifies_pathspecs(
     let Ok(new_tree) = commit.tree_id() else {
         return false;
     };
-    let new_tree_oid = new_tree.detach();
-
-    let old_tree_oid = if let Some(first_parent) = parents.first() {
-        let Ok(parent_obj) = repo.find_object(*first_parent) else {
-            return false;
-        };
-        let Some(parent_commit) = parent_obj
-            .peel_to_kind(gix::object::Kind::Commit)
-            .ok()
-            .and_then(|o| o.try_into_commit().ok())
-        else {
-            return false;
-        };
-        let Ok(tid) = parent_commit.tree_id() else {
-            return false;
-        };
-        Some(tid.detach())
-    } else {
-        None
-    };
-
-    pathspecs
-        .iter()
-        .any(|ps| pathspec_changed_merkle(repo, old_tree_oid, new_tree_oid, ps))
+    commit_treesame_modifies_pathspecs(repo, new_tree.detach(), parents, pathspecs)
 }
 
 /// Checks if a commit modified any file matching the given pathspecs.
@@ -391,20 +399,7 @@ fn parse_commit_raw(
     if !pathspecs.is_empty() {
         let commit = gix::objs::CommitRef::from_bytes(&obj.data, commit_id.kind())
             .map_err(|err| format!("Corrupt commit {commit_id}: {err}"))?;
-        let new_tree_oid = commit.tree();
-        let old_tree_oid = if let Some(first_parent) = parents.first() {
-            repo.find_object(*first_parent).ok().and_then(|p| {
-                gix::objs::CommitRef::from_bytes(&p.data, first_parent.kind())
-                    .ok()
-                    .map(|c| c.tree())
-            })
-        } else {
-            None
-        };
-        if !pathspecs
-            .iter()
-            .any(|ps| pathspec_changed_merkle(repo, old_tree_oid, new_tree_oid, ps))
-        {
+        if !commit_treesame_modifies_pathspecs(repo, commit.tree(), &parents, pathspecs) {
             return Ok(None);
         }
     }
@@ -971,5 +966,65 @@ mod tests {
             .collect();
         assert_eq!(small_lengths.len(), 18);
         assert!(small_lengths.iter().all(|&len| len == 10));
+    }
+
+    #[test]
+    fn test_commit_modifies_pathspecs_merge_and_root_commits() {
+        use std::fs;
+        use std::process::Command;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path();
+
+        let run = |args: &[&str]| {
+            let status = Command::new("git")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_SYSTEM", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .args(args)
+                .current_dir(path)
+                .status()
+                .expect("git");
+            assert!(status.success(), "git {args:?} failed");
+        };
+
+        run(&["init", "-b", "main"]);
+        run(&["config", "user.email", "alice@example.com"]);
+        run(&["config", "user.name", "Alice Developer"]);
+
+        fs::write(path.join("a.txt"), "v1\n").unwrap();
+        run(&["add", "a.txt"]);
+        run(&["commit", "-m", "root commit"]);
+
+        run(&["checkout", "-b", "side"]);
+        fs::write(path.join("side.txt"), "side\n").unwrap();
+        run(&["add", "side.txt"]);
+        run(&["commit", "-m", "side commit"]);
+
+        run(&["checkout", "main"]);
+        fs::write(path.join("main_only.txt"), "main\n").unwrap();
+        run(&["add", "main_only.txt"]);
+        run(&["commit", "-m", "main commit"]);
+
+        // Normal merge commit (TREESAME to side for side.txt and TREESAME to main for main_only.txt)
+        run(&["merge", "--no-ff", "side", "-m", "merge side into main"]);
+
+        let repo = gix::open(path).unwrap();
+        let merge_id = repo.head_id().unwrap().detach();
+        let (_src, cancel) = CancellationToken::new();
+
+        // Walking with pathspec "side.txt" should yield only `side commit` (not the clean merge commit, which is TREESAME to parent 2 for side.txt)
+        let spec = RevwalkSpec {
+            included: vec![merge_id],
+            excluded: Vec::new(),
+            pathspecs: vec!["side.txt".to_string()],
+            display_title: "HEAD -- side.txt".to_string(),
+        };
+        let commits: Vec<CommitSummary> = stream_commit_chunks_with_spec(&repo, spec, 50, cancel)
+            .unwrap()
+            .flat_map(|r| r.unwrap())
+            .collect();
+        assert_eq!(commits.len(), 1);
+        assert_eq!(&*commits[0].summary, "side commit");
     }
 }

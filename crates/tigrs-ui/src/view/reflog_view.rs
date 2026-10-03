@@ -146,27 +146,46 @@ impl ReflogView {
                 }
 
                 tag_buf.clear();
-                let _ = write!(tag_buf, "HEAD@{{{}}}", e.index);
+                let _ = write!(tag_buf, "{}@{{{}}}", self.ref_name, e.index);
+                let trunc_tag_len =
+                    tigrs_core::ansi::truncate_display_width(&tag_buf, 13.min(width)).len();
+                tag_buf.truncate(trunc_tag_len);
+                let tag_vis = UnicodeWidthStr::width(tag_buf.as_str());
+                let tag_target = 14.min(width);
+                for _ in 0..tag_target.saturating_sub(tag_vis) {
+                    tag_buf.push(' ');
+                }
+                let tag_width = tag_vis.max(tag_target);
 
                 if !is_selected {
                     queue!(w, SetForegroundColor(Color::Cyan))?;
                 }
-                write!(w, "{tag_buf:<14}")?;
+                write!(w, "{tag_buf}")?;
                 if !is_selected {
                     queue!(w, ResetColor)?;
                 }
 
+                let rem_after_tag = width.saturating_sub(tag_width);
                 let short_oid = e.new_id.to_hex_with_len(7);
+                let trunc_committer =
+                    tigrs_core::ansi::truncate_display_width(&e.committer_name, 14);
+                let committer_vis = UnicodeWidthStr::width(trunc_committer);
                 line_buf.clear();
-                let _ = write!(line_buf, "{short_oid:>7} {:<14} ", e.committer_name);
-                let prefix_width = UnicodeWidthStr::width(line_buf.as_str()) + 14;
+                let _ = write!(line_buf, "{short_oid:>7} {trunc_committer}");
+                for _ in 0..14usize.saturating_sub(committer_vis) {
+                    line_buf.push(' ');
+                }
+                line_buf.push(' ');
+                let prefix_width = UnicodeWidthStr::width(line_buf.as_str()) + tag_width;
                 let rem = width.saturating_sub(prefix_width);
                 let msg_col = tigrs_core::ansi::truncate_display_width(&e.message, rem);
                 line_buf.push_str(msg_col);
+                let rendered_rest =
+                    tigrs_core::ansi::truncate_display_width(&line_buf, rem_after_tag);
 
-                let line_width = UnicodeWidthStr::width(line_buf.as_str());
-                write!(w, "{line_buf}")?;
-                super::write_line_el_or_pad(w, width.saturating_sub(14 + line_width), is_selected)?;
+                let line_width = tag_width + UnicodeWidthStr::width(rendered_rest);
+                write!(w, "{rendered_rest}")?;
+                super::write_line_el_or_pad(w, width.saturating_sub(line_width), is_selected)?;
 
                 if is_selected {
                     queue!(w, SetAttribute(Attribute::Reset))?;
@@ -387,5 +406,13 @@ mod tests {
         let mut buf = Vec::new();
         view.render(&mut buf, 25, 6).expect("render narrow reflog");
         assert!(!buf.is_empty());
+
+        let mut term = crate::headless::HeadlessTerminal::new(60, 5);
+        view.render(&mut term, 60, 5).unwrap();
+        let row1 = term.line_text(1);
+        assert!(
+            row1.starts_with("refs/heads/ma"),
+            "ReflogView should render custom ref_name truncated to tag column: {row1:?}"
+        );
     }
 }

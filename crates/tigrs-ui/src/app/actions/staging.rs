@@ -77,20 +77,13 @@ pub fn handle_status_update(app: &mut AppState, visible_height: usize) -> Flow {
                         let mut new_view = app.create_status_diff_view(diff_data, status_item);
                         new_view.set_cursor(old_cursor, visible_height);
                         app.views.diff_view = Some(new_view);
-                        let old_status_cursor = app
-                            .views
-                            .status_view
-                            .as_ref()
-                            .map_or(0, StatusView::cursor_index);
                         if let Some(ref engine) = app.engine {
                             let (_src, token) = CancellationToken::new();
                             if let Ok(report) = engine.load_status(&token) {
                                 app.changes_report = Some(report.clone());
                                 let _ = app.apply_changes_rows();
                                 if let Some(ref mut status) = app.views.status_view {
-                                    let mut new_status = StatusView::new(report);
-                                    new_status.set_cursor(old_status_cursor, visible_height);
-                                    *status = new_status;
+                                    status.refresh(report);
                                 }
                             }
                         }
@@ -133,20 +126,13 @@ pub fn handle_stage_update_line(app: &mut AppState, visible_height: usize) -> Fl
                 let mut new_view = app.create_status_diff_view(diff_data, status_item);
                 new_view.set_cursor(old_cursor, visible_height);
                 app.views.diff_view = Some(new_view);
-                let old_status_cursor = app
-                    .views
-                    .status_view
-                    .as_ref()
-                    .map_or(0, StatusView::cursor_index);
                 if let Some(ref engine) = app.engine {
                     let (_src, token) = CancellationToken::new();
                     if let Ok(report) = engine.load_status(&token) {
                         app.changes_report = Some(report.clone());
                         let _ = app.apply_changes_rows();
                         if let Some(ref mut status) = app.views.status_view {
-                            let mut new_status = StatusView::new(report);
-                            new_status.set_cursor(old_status_cursor, visible_height);
-                            *status = new_status;
+                            status.refresh(report);
                         }
                     }
                 }
@@ -163,7 +149,7 @@ pub fn handle_stage_update_line(app: &mut AppState, visible_height: usize) -> Fl
     Flow::Continue
 }
 
-/// Handles the `StatusRevert` action: discards unstaged or untracked changes for the selected file.
+/// Handles the `StatusRevert` action: discards unstaged or untracked changes for the selected file or hunk.
 pub fn handle_status_revert(app: &mut AppState, visible_height: usize) -> Flow {
     if app.active_view() == Some(ViewKind::Status) {
         let item = app
@@ -199,6 +185,70 @@ pub fn handle_status_revert(app: &mut AppState, visible_height: usize) -> Flow {
                     app.status_message = Some(format!("Revert failed: {e}"));
                 }
             }
+        }
+    } else if app.active_view() == Some(ViewKind::Diff) {
+        let action_res = {
+            let Some(ref diff) = app.views.diff_view else {
+                return Flow::Continue;
+            };
+            let Some(status_item) = diff.status_item().cloned() else {
+                app.status_message =
+                    Some("Cannot revert in commit diff (open from Status view)".to_string());
+                return Flow::Continue;
+            };
+            let old_cursor = diff.cursor_index();
+            let selected_hunk = diff.selected_hunk().map(|(_, h)| h.clone());
+            let Some(ref engine) = app.engine else {
+                return Flow::Continue;
+            };
+            let res = match status_item.section {
+                StatusSection::Unstaged | StatusSection::Unmerged => {
+                    if let Some(ref hunk) = selected_hunk {
+                        engine.discard_hunk_bytes(status_item.raw_path_bytes(), hunk)
+                    } else {
+                        engine.discard_file_changes_os(
+                            status_item.os_path(),
+                            status_item.os_old_path(),
+                        )
+                    }
+                }
+                StatusSection::Untracked => engine.discard_untracked_file_os(status_item.os_path()),
+                StatusSection::Staged => {
+                    app.status_message =
+                        Some("Cannot revert staged changes (press 'u' to unstage)".to_string());
+                    return Flow::Continue;
+                }
+            };
+            Some(res.map(|()| (status_item, old_cursor)))
+        };
+
+        match action_res {
+            Some(Ok((status_item, old_cursor))) => {
+                if let Some(engine) = app.engine.clone() {
+                    if let Ok(new_diff_data) = engine.compute_status_item_diff(&status_item) {
+                        if new_diff_data.files.is_empty() {
+                            app.pop_active_view();
+                        } else {
+                            let mut new_diff =
+                                app.create_status_diff_view(new_diff_data, status_item);
+                            new_diff.set_cursor(old_cursor, visible_height);
+                            app.views.diff_view = Some(new_diff);
+                        }
+                    }
+                    let (_src, token) = CancellationToken::new();
+                    if let Ok(report) = engine.load_status(&token) {
+                        app.changes_report = Some(report.clone());
+                        let _ = app.apply_changes_rows();
+                        if let Some(ref mut status) = app.views.status_view {
+                            status.refresh(report);
+                        }
+                    }
+                }
+            }
+            Some(Err(e)) => {
+                app.status_message = Some(format!("Revert failed: {e}"));
+            }
+            None => {}
         }
     }
     Flow::Continue

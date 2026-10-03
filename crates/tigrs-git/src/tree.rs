@@ -217,8 +217,7 @@ pub fn read_tree_at_path_cancellable(
         let entry =
             entry_result.map_err(|e| TigError::Git(format!("Failed iterating tree: {e}")))?;
 
-        let raw_mode = entry.mode().as_str();
-        let mode_u32 = u32::from_str_radix(raw_mode, 8).unwrap_or(0);
+        let mode_u32 = u32::from(entry.mode().value());
         let kind = if entry.mode().is_tree() {
             TreeEntryKind::Tree
         } else if entry.mode().is_executable() {

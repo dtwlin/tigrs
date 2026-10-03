@@ -80,7 +80,7 @@ fn main() -> ! {
     let is_piped =
         !isatty(std::io::stdin()) && args.subcommand == "log" && args.rev_args.is_empty();
     let code = if is_piped {
-        run_piped_mode()
+        run_piped_mode(&args)
     } else {
         run_repository_mode(&args)
     };
@@ -102,18 +102,59 @@ fn main() -> ! {
     std::process::exit(code);
 }
 
-/// Browses a Git repository interactively.
-fn run_repository_mode(args: &CliArgs) -> i32 {
+/// Loads the user [`tigrs_core::Config`] from `-c` / `--config` (or default paths)
+/// and applies `--read-only` / `--update-mode` CLI overrides.
+fn load_cli_config(args: &CliArgs) -> tigrs_core::error::Result<tigrs_core::Config> {
     let mut config = if let Some(ref path) = args.config {
-        match tigrs_core::Config::load_from_file(path) {
-            Ok(cfg) => cfg,
-            Err(err) => {
-                eprintln!("tigrs: {err}");
-                return 1;
-            }
-        }
+        tigrs_core::Config::load_from_file(path)?
     } else {
         tigrs_core::Config::load_default()
+    };
+
+    if args.read_only {
+        config.general.read_only = true;
+        config.cli_read_only_override = Some(true);
+    } else if args.update_mode {
+        config.general.read_only = false;
+        config.cli_read_only_override = Some(false);
+    }
+    Ok(config)
+}
+
+/// Extracts an optional `+N` (1-based initial line jump) argument from a slice of CLI arguments
+/// (ignoring arguments after `--`), returning `(filtered_args, initial_line)`.
+fn extract_plus_line_arg(args: &[String]) -> (Vec<String>, Option<usize>) {
+    let mut filtered = Vec::with_capacity(args.len());
+    let mut initial_line = None;
+    let mut after_double_dash = false;
+    for arg in args {
+        if arg == "--" {
+            after_double_dash = true;
+            filtered.push(arg.clone());
+            continue;
+        }
+        if !after_double_dash
+            && let Some(num_str) = arg.strip_prefix('+')
+            && !num_str.is_empty()
+            && num_str.bytes().all(|b| b.is_ascii_digit())
+            && let Ok(line_no) = num_str.parse::<usize>()
+        {
+            initial_line = Some(line_no);
+            continue;
+        }
+        filtered.push(arg.clone());
+    }
+    (filtered, initial_line)
+}
+
+/// Browses a Git repository interactively.
+fn run_repository_mode(args: &CliArgs) -> i32 {
+    let config = match load_cli_config(args) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            eprintln!("tigrs: {err}");
+            return 1;
+        }
     };
 
     let engine = match GitEngine::open(args.directory.as_deref()) {
@@ -124,19 +165,11 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
         }
     };
 
-    // Launch in Update Mode by default (`config.general.read_only = false`),
-    // allowing `--read-only` to enable Read-Only Mode or `--update-mode` to override `config.toml`.
-    if args.read_only {
-        config.general.read_only = true;
-        config.cli_read_only_override = Some(true);
-    } else if args.update_mode {
-        config.general.read_only = false;
-        config.cli_read_only_override = Some(false);
-    }
     engine.set_read_only(config.general.read_only);
 
     // Direct status view mode: `tigrs status`
     if args.subcommand == "status" {
+        let (_, initial_line) = extract_plus_line_arg(&args.rev_args);
         let (cancel_src, token) = CancellationToken::new();
         let report = match engine.load_status(&token) {
             Ok(report) => report,
@@ -146,7 +179,10 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
             }
         };
 
-        let view = StatusView::new(report);
+        let mut view = StatusView::new(report);
+        if let Some(line_no) = initial_line {
+            view.set_cursor(line_no.saturating_sub(1), 24);
+        }
         let result = run_status_app(view, &cancel_src, Some(engine), Some(&config));
         return match result {
             Ok(()) => 0,
@@ -159,7 +195,8 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
 
     // Direct diff view mode: `tigrs show [rev]`
     if args.subcommand == "show" {
-        let rev_target = args.rev_args.first().map_or("HEAD", String::as_str);
+        let (rev_args, initial_line) = extract_plus_line_arg(&args.rev_args);
+        let rev_target = rev_args.first().map_or("HEAD", String::as_str);
         let commit_id = match engine.resolve_revision(rev_target) {
             Ok(id) => id,
             Err(err) => {
@@ -177,7 +214,10 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
         };
 
         let (cancel_src, _token) = CancellationToken::new();
-        let view = DiffView::new_deferred(diff);
+        let mut view = DiffView::new_deferred(diff);
+        if let Some(line_no) = initial_line {
+            view.set_cursor(line_no.saturating_sub(1), 24);
+        }
         let result = run_diff_app(view, &cancel_src, Some(engine), Some(&config));
         return match result {
             Ok(()) => 0,
@@ -190,9 +230,10 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
 
     // Direct tree view mode: `tigrs tree [rev] [path]`
     if args.subcommand == "tree" {
-        let (rev_target, path_target) = if args.rev_args.len() >= 2 {
-            (args.rev_args[0].as_str(), args.rev_args[1].as_str())
-        } else if let Some(candidate) = args.rev_args.first() {
+        let (rev_args, initial_line) = extract_plus_line_arg(&args.rev_args);
+        let (rev_target, path_target) = if rev_args.len() >= 2 {
+            (rev_args[0].as_str(), rev_args[1].as_str())
+        } else if let Some(candidate) = rev_args.first() {
             if engine.resolve_revision(candidate).is_ok() {
                 (candidate.as_str(), "")
             } else {
@@ -217,7 +258,10 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
         };
 
         let (cancel_src, _token) = CancellationToken::new();
-        let view = TreeView::new(listing);
+        let mut view = TreeView::new(listing);
+        if let Some(line_no) = initial_line {
+            view.set_cursor(line_no.saturating_sub(1), 24);
+        }
         return match run_tree_app(view, &cancel_src, Some(engine), Some(&config)) {
             Ok(()) => 0,
             Err(err) => {
@@ -229,9 +273,10 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
 
     // Direct blob view mode: `tigrs blob [rev] <path>`
     if args.subcommand == "blob" {
-        let (rev_target, path_target) = if args.rev_args.len() >= 2 {
-            (args.rev_args[0].as_str(), args.rev_args[1].as_str())
-        } else if let Some(path) = args.rev_args.first() {
+        let (rev_args, initial_line) = extract_plus_line_arg(&args.rev_args);
+        let (rev_target, path_target) = if rev_args.len() >= 2 {
+            (rev_args[0].as_str(), rev_args[1].as_str())
+        } else if let Some(path) = rev_args.first() {
             ("HEAD", path.as_str())
         } else {
             eprintln!("tigrs: missing file path for blob view");
@@ -255,7 +300,10 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
         let (cancel_src, _token) = CancellationToken::new();
         let mut opts = tigrs_ui::ViewOptions::default();
         opts.apply_config(&config);
-        let view = BlobView::new_with_options(commit_id, blob, &opts);
+        let mut view = BlobView::new_with_options(commit_id, blob, &opts);
+        if let Some(line_no) = initial_line {
+            view.set_cursor(line_no.saturating_sub(1), 24);
+        }
         return match run_blob_app(view, &cancel_src, Some(engine), Some(&config)) {
             Ok(()) => 0,
             Err(err) => {
@@ -267,9 +315,10 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
 
     // Direct blame view mode: `tigrs blame [rev] <path>`
     if args.subcommand == "blame" {
-        let (rev_target, path_target) = if args.rev_args.len() >= 2 {
-            (args.rev_args[0].as_str(), args.rev_args[1].as_str())
-        } else if let Some(path) = args.rev_args.first() {
+        let (rev_args, initial_line) = extract_plus_line_arg(&args.rev_args);
+        let (rev_target, path_target) = if rev_args.len() >= 2 {
+            (rev_args[0].as_str(), rev_args[1].as_str())
+        } else if let Some(path) = rev_args.first() {
             ("HEAD", path.as_str())
         } else {
             eprintln!("tigrs: missing file path for blame view");
@@ -293,7 +342,10 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
         };
 
         let (cancel_src, _token) = CancellationToken::new();
-        let view = BlameView::from_blob(commit_id, blob);
+        let mut view = BlameView::from_blob(commit_id, blob);
+        if let Some(line_no) = initial_line {
+            view.set_cursor(line_no.saturating_sub(1), 24);
+        }
         return match run_blame_app(view, &cancel_src, Some(engine), Some(&config)) {
             Ok(()) => 0,
             Err(err) => {
@@ -305,6 +357,7 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
 
     // Direct refs view mode: `tigrs refs`
     if args.subcommand == "refs" {
+        let (_, initial_line) = extract_plus_line_arg(&args.rev_args);
         let refs = match engine.list_refs() {
             Ok(refs) => refs,
             Err(err) => {
@@ -313,7 +366,10 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
             }
         };
         let (cancel_src, _token) = CancellationToken::new();
-        let view = RefsView::new(refs);
+        let mut view = RefsView::new(refs);
+        if let Some(line_no) = initial_line {
+            view.set_cursor(line_no.saturating_sub(1), 24);
+        }
         return match run_refs_app(view, &cancel_src, Some(engine), Some(&config)) {
             Ok(()) => 0,
             Err(err) => {
@@ -325,6 +381,7 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
 
     // Direct stash view mode: `tigrs stash`
     if args.subcommand == "stash" {
+        let (_, initial_line) = extract_plus_line_arg(&args.rev_args);
         let stashes = match engine.list_stashes() {
             Ok(stashes) => stashes,
             Err(err) => {
@@ -333,7 +390,10 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
             }
         };
         let (cancel_src, _token) = CancellationToken::new();
-        let view = StashView::new(stashes);
+        let mut view = StashView::new(stashes);
+        if let Some(line_no) = initial_line {
+            view.set_cursor(line_no.saturating_sub(1), 24);
+        }
         return match run_stash_app(view, &cancel_src, Some(engine), Some(&config)) {
             Ok(()) => 0,
             Err(err) => {
@@ -345,7 +405,8 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
 
     // Direct reflog view mode: `tigrs reflog [ref]`
     if args.subcommand == "reflog" {
-        let target_ref = args.rev_args.first().map_or("HEAD", String::as_str);
+        let (rev_args, initial_line) = extract_plus_line_arg(&args.rev_args);
+        let target_ref = rev_args.first().map_or("HEAD", String::as_str);
         let entries = match engine.read_reflog(target_ref) {
             Ok(entries) => entries,
             Err(err) => {
@@ -354,7 +415,10 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
             }
         };
         let (cancel_src, _token) = CancellationToken::new();
-        let view = ReflogView::new(target_ref.to_string(), entries);
+        let mut view = ReflogView::new(target_ref.to_string(), entries);
+        if let Some(line_no) = initial_line {
+            view.set_cursor(line_no.saturating_sub(1), 24);
+        }
         return match run_reflog_app(view, &cancel_src, Some(engine), Some(&config)) {
             Ok(()) => 0,
             Err(err) => {
@@ -366,7 +430,8 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
 
     // Direct grep view mode: `tigrs grep [pattern]`
     if args.subcommand == "grep" {
-        let pattern = args.rev_args.first().cloned().unwrap_or_default();
+        let (rev_args, initial_line) = extract_plus_line_arg(&args.rev_args);
+        let pattern = rev_args.first().cloned().unwrap_or_default();
         let matches = match run_cli_grep(&pattern, engine.info().work_dir.as_deref()) {
             Ok(m) => m,
             Err(err) => {
@@ -375,7 +440,10 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
             }
         };
         let (cancel_src, _token) = CancellationToken::new();
-        let view = GrepView::new(pattern, matches);
+        let mut view = GrepView::new(pattern, matches);
+        if let Some(line_no) = initial_line {
+            view.set_cursor(line_no.saturating_sub(1), 24);
+        }
         return match run_grep_app(view, &cancel_src, Some(engine), Some(&config)) {
             Ok(()) => 0,
             Err(err) => {
@@ -387,8 +455,7 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
 
     // Direct log view mode: `tigrs log [rev_args...]`
     if args.subcommand == "log" && CliArgs::is_explicit_subcommand_from(std::env::args_os()) {
-        let mut raw_args = Vec::new();
-        raw_args.extend(args.rev_args.iter().cloned());
+        let (raw_args, initial_line) = extract_plus_line_arg(&args.rev_args);
 
         let spec = match engine.parse_rev_args(&raw_args) {
             Ok(spec) => spec,
@@ -441,6 +508,9 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
                 }
             }
         }
+        if let Some(line_no) = initial_line {
+            log_view.set_cursor(line_no.saturating_sub(1), 24);
+        }
 
         return match run_log_app(log_view, &cancel_src, Some(engine), Some(&config)) {
             Ok(()) => 0,
@@ -456,6 +526,7 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
         raw_args.push(args.subcommand.clone());
     }
     raw_args.extend(args.rev_args.iter().cloned());
+    let (raw_args, initial_line) = extract_plus_line_arg(&raw_args);
 
     let spec = match engine.parse_rev_args(&raw_args) {
         Ok(spec) => spec,
@@ -487,7 +558,10 @@ fn run_repository_mode(args: &CliArgs) -> i32 {
 
     let (cancel_src, token) = CancellationToken::new();
     let (tx, rx) = bounded::<Vec<CommitSummary>>(CHANNEL_DEPTH);
-    let view = MainView::new(branch_name);
+    let mut view = MainView::new(branch_name);
+    if let Some(line_no) = initial_line {
+        view.set_initial_target_line(line_no.saturating_sub(1));
+    }
 
     // Spawn the commit count estimator on a background thread so neither commit-graph
     // mapping nor pack index sampling delays spawning the primary revwalk worker or TTFF.
@@ -588,8 +662,16 @@ const MAX_PIPED_LINES: usize = 500_000;
 const MAX_PIPED_LINE_BYTES: u64 = 64 * 1024;
 
 /// Consumes piped input from `stdin` and displays it interactively in the TUI.
-fn run_piped_mode() -> i32 {
+fn run_piped_mode(args: &CliArgs) -> i32 {
     use std::io::Read as _;
+    let config = match load_cli_config(args) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            eprintln!("tigrs: {err}");
+            return 1;
+        }
+    };
+
     let stdin = std::io::stdin();
     let mut reader = stdin.lock();
     let mut line = String::new();
@@ -631,7 +713,6 @@ fn run_piped_mode() -> i32 {
     // completed stream rather than waiting on a channel that will never fill.
     let (_, rx) = bounded::<Vec<CommitSummary>>(1);
 
-    let config = tigrs_core::Config::load_default();
     if let Err(err) = run_app(view, &rx, &cancel_src, None, Some(&config)) {
         eprintln!("tigrs: {err}");
         return 1;
@@ -901,15 +982,50 @@ only/path/and/line.rs:99
                 .unwrap();
         assert_eq!(run_repository_mode(&bad_cfg_args), 1);
 
-        // 3. Valid repo with invalid revision
+        // 3. Valid repo with a seeded HEAD commit so subcommand error paths after HEAD resolution are exercised
         let repo_path = temp_dir.path();
-        let _ = std::process::Command::new("git")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_SYSTEM", "/dev/null")
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .args(["init"])
-            .current_dir(repo_path)
-            .output();
+        let run_git = |args: &[&str]| {
+            let st = std::process::Command::new("git")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_SYSTEM", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .args(args)
+                .current_dir(repo_path)
+                .status()
+                .unwrap();
+            assert!(st.success());
+        };
+        run_git(&["init", "-b", "main"]);
+        run_git(&["config", "user.name", "Alice Developer"]);
+        run_git(&["config", "user.email", "alice@example.com"]);
+        std::fs::write(repo_path.join("README.md"), "# Seed\n").unwrap();
+        run_git(&["add", "README.md"]);
+        run_git(&["commit", "-m", "initial commit"]);
+
+        // Also verify load_cli_config honors --config, --read-only, and --update-mode
+        let custom_cfg = repo_path.join("custom_tigrs.toml");
+        std::fs::write(&custom_cfg, "[general]\nread_only = true\n").unwrap();
+        let readonly_cfg = load_cli_config(
+            &CliArgs::try_parse_from(["tigrs", "-c", custom_cfg.to_str().unwrap()]).unwrap(),
+        )
+        .unwrap();
+        assert!(readonly_cfg.general.read_only);
+        let writable_cfg = load_cli_config(
+            &CliArgs::try_parse_from([
+                "tigrs",
+                "-c",
+                custom_cfg.to_str().unwrap(),
+                "--update-mode",
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(!writable_cfg.general.read_only);
+        assert_eq!(writable_cfg.cli_read_only_override, Some(false));
+        let cfg_force_ro =
+            load_cli_config(&CliArgs::try_parse_from(["tigrs", "--read-only"]).unwrap()).unwrap();
+        assert!(cfg_force_ro.general.read_only);
+        assert_eq!(cfg_force_ro.cli_read_only_override, Some(true));
 
         let bad_show_args = CliArgs::try_parse_from([
             "tigrs",

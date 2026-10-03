@@ -867,4 +867,71 @@ filename current_file.txt\n\
         assert!(parsed_caret.is_some());
         assert_eq!(parsed_normal, parsed_caret);
     }
+
+    #[test]
+    fn test_blame_binary_and_empty_file_and_rename_tracking() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+
+        let run = |args: &[&str]| {
+            let status = Command::new("git")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_SYSTEM", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .args(args)
+                .current_dir(path)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        };
+
+        run(&["init", "-b", "main"]);
+        run(&["config", "user.email", "alice@example.com"]);
+        run(&["config", "user.name", "Alice Developer"]);
+
+        std::fs::write(path.join("bin.dat"), b"\x00\x01\x02binary\x00").unwrap();
+        std::fs::write(path.join("empty.txt"), b"").unwrap();
+        std::fs::write(
+            path.join("old_name.txt"),
+            "unchanged_line_1\nunchanged_line_2\nunchanged_line_3\nunchanged_line_4\nline_5\n",
+        )
+        .unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-qm", "initial files"]);
+
+        run(&["mv", "old_name.txt", "new_name.txt"]);
+        std::fs::write(
+            path.join("new_name.txt"),
+            "unchanged_line_1\nunchanged_line_2\nunchanged_line_3\nunchanged_line_4\nline_5_modified\n",
+        )
+        .unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-qm", "rename and edit"]);
+
+        let repo = gix::open(path).unwrap();
+        let head = repo.head_id().unwrap().detach();
+
+        let bin_blame = compute_blame(&repo, Some(path), head, "bin.dat").unwrap();
+        assert!(bin_blame.is_binary);
+        assert!(bin_blame.lines.is_empty());
+
+        let empty_blame = compute_blame(&repo, Some(path), head, "empty.txt").unwrap();
+        assert!(!empty_blame.is_binary);
+        assert!(empty_blame.lines.is_empty());
+
+        let renamed_blame = compute_blame(&repo, Some(path), head, "new_name.txt").unwrap();
+        assert_eq!(renamed_blame.lines.len(), 5);
+        assert_eq!(renamed_blame.lines[0].content, "unchanged_line_1");
+        assert_eq!(renamed_blame.lines[4].content, "line_5_modified");
+        assert!(renamed_blame.lines[4].parent_commit_id.is_some());
+
+        let cli_renamed = compute_blame_via_cli(Some(path), Some(head), "new_name.txt").unwrap();
+        assert_eq!(cli_renamed.lines.len(), 5);
+        assert!(cli_renamed.lines[0].parent_commit_id.is_none());
+        assert!(cli_renamed.lines[4].parent_commit_id.is_some());
+        assert_eq!(
+            cli_renamed.lines[0].source_path.as_deref(),
+            Some("old_name.txt")
+        );
+    }
 }
