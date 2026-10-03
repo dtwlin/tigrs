@@ -388,4 +388,49 @@ mod tests {
         let from_lines = LineBuffer::from(vec![payload.lines().next().unwrap().to_string()]);
         assert_eq!(&from_lines[0], "fn check() { // evil");
     }
+
+    #[test]
+    fn test_line_buffer_traits_conversions_and_double_ended_iter() {
+        let default_buf = LineBuffer::default();
+        assert!(default_buf.is_empty());
+        assert_eq!(default_buf.len(), 0);
+        assert_eq!(default_buf.as_str(), "");
+        assert_eq!(default_buf.to_vec(), Vec::<String>::new());
+
+        let (is_bin_empty, empty_raw) = LineBuffer::from_raw_bytes(b"");
+        assert!(!is_bin_empty);
+        assert!(empty_raw.is_empty());
+
+        let arr_str = LineBuffer::from(["alpha", "beta", "gamma"]);
+        let slice_str: &[&str] = &["alpha", "beta", "gamma"];
+        let from_slice_str = LineBuffer::from(slice_str);
+        let owned_strings = ["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
+        let from_arr_string = LineBuffer::from(owned_strings.clone());
+        let from_slice_string = LineBuffer::from(owned_strings.as_slice());
+
+        assert_eq!(arr_str, from_slice_str);
+        assert_eq!(arr_str, from_arr_string);
+        assert_eq!(arr_str, from_slice_string);
+        assert_eq!(arr_str, vec!["alpha", "beta", "gamma"]);
+        assert_eq!(arr_str, owned_strings.to_vec());
+        assert_eq!(arr_str, slice_str);
+        assert_eq!(arr_str.to_vec(), owned_strings.to_vec());
+        assert_eq!(arr_str.as_str(), "alpha\nbeta\ngamma\n");
+
+        let mut via_ref = Vec::new();
+        for line in &arr_str {
+            via_ref.push(line);
+        }
+        assert_eq!(via_ref, vec!["alpha", "beta", "gamma"]);
+
+        let mut iter = arr_str.iter();
+        assert_eq!(iter.len(), 3);
+        assert_eq!(iter.size_hint(), (3, Some(3)));
+        assert_eq!(iter.next_back(), Some("gamma"));
+        assert_eq!(iter.len(), 2);
+        assert_eq!(iter.nth(1), Some("beta"));
+        assert_eq!(iter.len(), 0);
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next_back(), None);
+    }
 }

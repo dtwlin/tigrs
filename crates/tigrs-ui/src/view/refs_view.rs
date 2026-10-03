@@ -168,25 +168,44 @@ impl RefsView {
                     RefKind::Other => Color::Cyan,
                 };
 
+                let trunc_badge_len =
+                    tigrs_core::ansi::truncate_display_width(&badge_buf, 23.min(width)).len();
+                badge_buf.truncate(trunc_badge_len);
+                let badge_vis = UnicodeWidthStr::width(badge_buf.as_str());
+                let badge_target = 24.min(width);
+                for _ in 0..badge_target.saturating_sub(badge_vis) {
+                    badge_buf.push(' ');
+                }
+                let badge_width = badge_vis.max(badge_target);
+
                 if !is_selected {
                     queue!(w, SetForegroundColor(color))?;
                 }
-                write!(w, "{badge_buf:<24}")?;
+                write!(w, "{badge_buf}")?;
                 if !is_selected {
                     queue!(w, ResetColor)?;
                 }
 
+                let rem_after_badge = width.saturating_sub(badge_width);
                 let short_oid = r.commit_id.to_hex_with_len(7);
+                let trunc_author = tigrs_core::ansi::truncate_display_width(&r.author_name, 16);
+                let author_vis = UnicodeWidthStr::width(trunc_author);
                 line_buf.clear();
-                let _ = write!(line_buf, "{short_oid:>7} {:<16} ", r.author_name);
-                let prefix_width = UnicodeWidthStr::width(line_buf.as_str()) + 24;
+                let _ = write!(line_buf, "{short_oid:>7} {trunc_author}");
+                for _ in 0..16usize.saturating_sub(author_vis) {
+                    line_buf.push(' ');
+                }
+                line_buf.push(' ');
+                let prefix_width = UnicodeWidthStr::width(line_buf.as_str()) + badge_width;
                 let rem = width.saturating_sub(prefix_width);
                 let summary_col = tigrs_core::ansi::truncate_display_width(&r.summary, rem);
                 line_buf.push_str(summary_col);
+                let rendered_rest =
+                    tigrs_core::ansi::truncate_display_width(&line_buf, rem_after_badge);
 
-                let line_width = UnicodeWidthStr::width(line_buf.as_str());
-                write!(w, "{line_buf}")?;
-                super::write_line_el_or_pad(w, width.saturating_sub(24 + line_width), is_selected)?;
+                let line_width = badge_width + UnicodeWidthStr::width(rendered_rest);
+                write!(w, "{rendered_rest}")?;
+                super::write_line_el_or_pad(w, width.saturating_sub(line_width), is_selected)?;
 
                 if is_selected {
                     queue!(w, SetAttribute(Attribute::Reset))?;
@@ -446,5 +465,18 @@ mod tests {
         let mut buf = Vec::new();
         view.render(&mut buf, 25, 6).expect("render narrow refs");
         assert!(!buf.is_empty());
+
+        let mut term = crate::headless::HeadlessTerminal::new(25, 6);
+        view.render(&mut term, 25, 6).unwrap();
+        assert!(
+            term.line_text(1).starts_with("[feature/super-long-br"),
+            "Long branch badge should truncate cleanly to 23 cols without wrapping: {:?}",
+            term.line_text(1)
+        );
+        assert_eq!(
+            term.line_text(2).trim(),
+            "",
+            "Row 1 must not wrap into row 2 on narrow terminals"
+        );
     }
 }

@@ -258,7 +258,7 @@ pub fn handle_enter(app: &mut AppState, visible_height: usize) -> Flow {
             {
                 match engine.read_blob_at_commit_path(head_id, &m.path) {
                     Ok(blob) => {
-                        let mut bv = BlobView::new(head_id, blob);
+                        let mut bv = BlobView::new_with_options(head_id, blob, &app.options);
                         bv.set_cursor(m.line_num.saturating_sub(1), visible_height);
                         app.views.blob_view = Some(bv);
                         app.push_view(ViewKind::Blob);
@@ -278,8 +278,47 @@ pub fn handle_enter(app: &mut AppState, visible_height: usize) -> Flow {
                 });
                 if let Some(msg) = msg {
                     app.status_message = Some(msg);
+                    app.views.diff_view = Some(diff_view);
+                } else {
+                    let target = diff_view.selected_file_and_lineno().map(|(file, lineno)| {
+                        (
+                            file.path.clone(),
+                            file.new_id.or(file.old_id),
+                            diff_view.commit_id(),
+                            lineno,
+                        )
+                    });
+                    app.views.diff_view = Some(diff_view);
+                    if let (Some((path, blob_oid, commit_id, lineno)), Some(engine)) =
+                        (target, &app.engine)
+                    {
+                        let target_commit = if commit_id.is_null()
+                            || commit_id == tigrs_git::ObjectId::empty_tree(commit_id.kind())
+                        {
+                            engine.head_commit_id().unwrap_or(commit_id)
+                        } else {
+                            commit_id
+                        };
+                        let blob_res = if let Some(oid) = blob_oid
+                            && !oid.is_null()
+                            && oid != tigrs_git::ObjectId::empty_tree(oid.kind())
+                        {
+                            engine
+                                .read_blob(oid, &path)
+                                .or_else(|_| engine.read_blob_at_commit_path(target_commit, &path))
+                        } else {
+                            engine.read_blob_at_commit_path(target_commit, &path)
+                        };
+                        if let Ok(blob) = blob_res {
+                            let mut bv =
+                                BlobView::new_with_options(target_commit, blob, &app.options);
+                            bv.set_cursor(lineno.saturating_sub(1) as usize, visible_height);
+                            app.views.blob_view = Some(bv);
+                            app.push_view(ViewKind::Blob);
+                            app.views.maximized = false;
+                        }
+                    }
                 }
-                app.views.diff_view = Some(diff_view);
             }
         }
         _ => {}

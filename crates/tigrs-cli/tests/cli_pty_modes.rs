@@ -217,6 +217,10 @@ fn test_pty_all_subcommand_views() {
     let dir = tempfile::tempdir().expect("temp dir");
     init_comprehensive_repo(dir.path());
 
+    // 0. Default main view (no subcommand) and `+line` initial line jump
+    test_subcommand_in_pty(&[], dir.path());
+    test_subcommand_in_pty(&["+2"], dir.path());
+
     // 1. Default log mode
     test_subcommand_in_pty(&["log"], dir.path());
 

@@ -61,6 +61,29 @@ impl StatusView {
         &self.report
     }
 
+    /// Refreshes the status report while preserving the currently selected `(section, path)` item if still present.
+    pub fn refresh(&mut self, report: StatusReport) {
+        let prev_selected = self
+            .selected_item()
+            .map(|item| (item.section, item.path.clone()));
+        let old_cursor = self.nav.cursor();
+        self.rows.clear();
+        build_status_rows(&report, &mut self.rows);
+        self.report = report;
+
+        let target_cursor = prev_selected
+            .and_then(|(sec, path)| {
+                self.rows.iter().position(
+                    |r| matches!(r, StatusRow::Item(it) if it.section == sec && it.path == path),
+                )
+            })
+            .unwrap_or(old_cursor);
+        self.set_cursor(target_cursor, 0);
+        if self.nav.scroll_offset > self.nav.cursor {
+            self.nav.scroll_offset = self.nav.cursor;
+        }
+    }
+
     /// Returns the total number of display rows.
     pub fn line_count(&self) -> usize {
         self.rows.len()
@@ -738,5 +761,81 @@ mod tests {
         // Test empty render dimension
         let mut empty_buf = Vec::new();
         assert!(view.render(&mut empty_buf, 0, 0).is_ok());
+    }
+
+    #[test]
+    fn test_status_view_refresh_preserves_cursor_across_staged_and_unmerged_items() {
+        let mut view = StatusView::new(sample_report());
+        // Move cursor to unstaged README.md (row 4)
+        view.set_cursor(4, 10);
+        assert_eq!(view.selected_item().unwrap().path, "README.md");
+        assert_eq!(
+            view.selected_item().unwrap().section,
+            StatusSection::Unstaged
+        );
+
+        // Refresh with additional staged items and an unmerged item; cursor must track README.md in Unstaged
+        let updated = StatusReport {
+            staged: vec![
+                StatusItem::new('M', StatusSection::Staged, "src/a.rs", None),
+                StatusItem::new('A', StatusSection::Staged, "src/b.rs", None),
+                StatusItem::new('M', StatusSection::Staged, "src/main.rs", None),
+            ],
+            unstaged: vec![
+                StatusItem::new('M', StatusSection::Unstaged, "Cargo.toml", None),
+                StatusItem::new('M', StatusSection::Unstaged, "README.md", None),
+            ],
+            untracked: vec![],
+            unmerged: vec![StatusItem::new(
+                'U',
+                StatusSection::Unmerged,
+                "src/conflict.rs",
+                None,
+            )],
+            branch: "feature".to_string(),
+            head_commit: None,
+        };
+        view.refresh(updated);
+        let sel = view.selected_item().expect("selected item after refresh");
+        assert_eq!(sel.path, "README.md");
+        assert_eq!(sel.section, StatusSection::Unstaged);
+
+        // Now move to unmerged item (row 6: after 4 staged rows, 1 empty row, 1 unmerged header) and refresh when README.md is staged
+        view.set_cursor(6, 10);
+        assert_eq!(
+            view.selected_item().unwrap().section,
+            StatusSection::Unmerged
+        );
+        assert_eq!(view.selected_item().unwrap().path, "src/conflict.rs");
+
+        let updated2 = StatusReport {
+            staged: vec![
+                StatusItem::new('A', StatusSection::Staged, "src/new_a.rs", None),
+                StatusItem::new('A', StatusSection::Staged, "src/new_b.rs", None),
+                StatusItem::new('M', StatusSection::Staged, "src/main.rs", None),
+                StatusItem::new('M', StatusSection::Staged, "README.md", None),
+            ],
+            unstaged: vec![StatusItem::new(
+                'M',
+                StatusSection::Unstaged,
+                "Cargo.toml",
+                None,
+            )],
+            untracked: vec![],
+            unmerged: vec![StatusItem::new(
+                'U',
+                StatusSection::Unmerged,
+                "src/conflict.rs",
+                None,
+            )],
+            branch: "feature".to_string(),
+            head_commit: None,
+        };
+        view.refresh(updated2);
+        let sel2 = view
+            .selected_item()
+            .expect("selected unmerged item after second refresh");
+        assert_eq!(sel2.section, StatusSection::Unmerged);
+        assert_eq!(sel2.path, "src/conflict.rs");
     }
 }

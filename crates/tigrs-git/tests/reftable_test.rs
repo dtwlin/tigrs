@@ -187,3 +187,76 @@ fn test_reftable_repo_without_commits_opens_with_empty_log() {
     );
     assert!(commits.is_empty());
 }
+
+#[test]
+fn test_reftable_resolve_revision_and_parse_rev_args_ranges() {
+    let dir = tempdir().expect("failed to create tempdir");
+    let path = dir.path();
+    if !init_reftable_repo(path) {
+        return;
+    }
+    commit(path, "base commit on main");
+
+    let run = |args: &[&str]| {
+        let ok = Command::new("git")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(args)
+            .current_dir(path)
+            .status()
+            .expect("git failed")
+            .success();
+        assert!(ok, "git {args:?} failed");
+    };
+
+    run(&["tag", "v1.0"]);
+    run(&["checkout", "-b", "feature"]);
+    commit(path, "feature commit 1");
+    commit(path, "feature commit 2");
+
+    let engine = GitEngine::open(Some(path)).expect("open reftable repo");
+    assert!(engine.info().is_reftable);
+
+    let main_id = engine.resolve_revision("main").expect("resolve main");
+    let tag_id = engine.resolve_revision("v1.0").expect("resolve tag v1.0");
+    let feat_id = engine.resolve_revision("feature").expect("resolve feature");
+    let parent_id = engine.resolve_revision("HEAD~1").expect("resolve HEAD~1");
+    assert_eq!(main_id, tag_id);
+    assert_ne!(feat_id, main_id);
+    assert_ne!(parent_id, main_id);
+
+    // Leading dash in revision must be rejected by security guard
+    assert!(engine.resolve_revision("--all").is_err());
+    assert!(engine.resolve_revision("nonexistent_ref_xyz").is_err());
+
+    // Range `main..feature` must walk only the 2 commits on `feature`
+    let spec_range = engine
+        .parse_rev_args(&["main..feature".to_string()])
+        .expect("parse main..feature");
+    assert_eq!(spec_range.included, vec![feat_id]);
+    assert_eq!(spec_range.excluded, vec![main_id]);
+
+    let (_src, token) = CancellationToken::new();
+    let range_commits = collect_commits(
+        engine
+            .stream_commits_spec(spec_range, Some(50), token)
+            .expect("walk main..feature"),
+    );
+    assert_eq!(range_commits.len(), 2);
+    assert_eq!(range_commits[0].summary.as_ref(), "feature commit 2");
+    assert_eq!(range_commits[1].summary.as_ref(), "feature commit 1");
+
+    // Symmetric difference `main...feature` and `^main` exclusion
+    let spec_sym = engine
+        .parse_rev_args(&[
+            "main...feature".to_string(),
+            "^v1.0".to_string(),
+            "--".to_string(),
+            "src/".to_string(),
+        ])
+        .expect("parse symmetric range and exclusion");
+    assert_eq!(spec_sym.included, vec![main_id, feat_id]);
+    assert_eq!(spec_sym.excluded, vec![tag_id]);
+    assert_eq!(spec_sym.pathspecs, vec!["src/".to_string()]);
+}

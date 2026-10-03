@@ -135,24 +135,36 @@ impl StashView {
 
                 tag_buf.clear();
                 let _ = write!(tag_buf, "stash@{{{}}}", s.index);
+                let trunc_tag_len =
+                    tigrs_core::ansi::truncate_display_width(&tag_buf, 13.min(width)).len();
+                tag_buf.truncate(trunc_tag_len);
+                let tag_vis = UnicodeWidthStr::width(tag_buf.as_str());
+                let tag_target = 14.min(width);
+                for _ in 0..tag_target.saturating_sub(tag_vis) {
+                    tag_buf.push(' ');
+                }
+                let tag_width = tag_vis.max(tag_target);
 
                 if !is_selected {
                     queue!(w, SetForegroundColor(Color::Magenta))?;
                 }
-                write!(w, "{tag_buf:<14}")?;
+                write!(w, "{tag_buf}")?;
                 if !is_selected {
                     queue!(w, ResetColor)?;
                 }
 
+                let rem_after_tag = width.saturating_sub(tag_width);
                 let short_oid = s.commit_id.to_hex_with_len(7);
-                let rem = width.saturating_sub(14 + 8);
+                let rem = width.saturating_sub(tag_width + 8);
                 let summary_col = tigrs_core::ansi::truncate_display_width(&s.summary, rem);
 
                 line_buf.clear();
                 let _ = write!(line_buf, "{short_oid:>7} {summary_col}");
-                let line_width = UnicodeWidthStr::width(line_buf.as_str());
-                write!(w, "{line_buf}")?;
-                super::write_line_el_or_pad(w, width.saturating_sub(14 + line_width), is_selected)?;
+                let rendered_rest =
+                    tigrs_core::ansi::truncate_display_width(&line_buf, rem_after_tag);
+                let line_width = tag_width + UnicodeWidthStr::width(rendered_rest);
+                write!(w, "{rendered_rest}")?;
+                super::write_line_el_or_pad(w, width.saturating_sub(line_width), is_selected)?;
 
                 if is_selected {
                     queue!(w, SetAttribute(Attribute::Reset))?;

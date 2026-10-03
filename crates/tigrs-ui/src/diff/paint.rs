@@ -159,6 +159,81 @@ fn split_wrap_slices(text: &str, max_width: usize) -> Vec<(usize, Vec<char>, usi
     slices
 }
 
+/// Counts the number of display-width-bounded soft-wrapped lines for `text` without heap allocation.
+fn count_wrap_slices(text: &str, max_width: usize) -> usize {
+    if text.is_empty() || max_width == 0 {
+        return 1;
+    }
+    let mut count = 1usize;
+    let mut cur_width = 0usize;
+    let mut has_chars_in_chunk = false;
+
+    for ch in text.chars() {
+        let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if cur_width + cw > max_width && has_chars_in_chunk {
+            count += 1;
+            cur_width = 0;
+        }
+        has_chars_in_chunk = true;
+        cur_width += cw;
+    }
+    count
+}
+
+fn wrapped_row_height(
+    row: &RowPair,
+    is_side_by_side: bool,
+    theme: &DiffTheme,
+    options: &ViewOptions,
+    w: usize,
+    lineno_digits: usize,
+) -> usize {
+    if !is_content_row(row.row_type) {
+        return 1;
+    }
+    if is_side_by_side {
+        let num_w = lineno_digits.max(4);
+        let gutter_w = if options.line_number { num_w + 1 } else { 0 };
+        let sep_w = 1;
+        let avail = w.saturating_sub(gutter_w * 2 + sep_w);
+        let left_w = avail / 2;
+        let right_w = avail.saturating_sub(left_w);
+        let sign_w = usize::from(
+            theme.profile == ColorProfile::Monochrome
+                || options.diff_indicator == crate::options::DiffIndicator::Yes,
+        );
+        let left_content_w = left_w.saturating_sub(sign_w).max(1);
+        let right_content_w = right_w.saturating_sub(sign_w).max(1);
+        let left_len = row
+            .left
+            .as_ref()
+            .map_or(0, |c| count_wrap_slices(&c.text, left_content_w));
+        let right_len = row
+            .right
+            .as_ref()
+            .map_or(0, |c| count_wrap_slices(&c.text, right_content_w));
+        left_len.max(right_len).max(1)
+    } else {
+        let cell_opt = row.left.as_ref().or(row.right.as_ref());
+        let mut gutter_cols = 0usize;
+        if options.line_number
+            && let Some(num) = cell_opt.and_then(|c| c.lineno).map(|n| n as usize)
+        {
+            let num_w = lineno_digits
+                .max(num.checked_ilog10().map_or(1, |d| d as usize + 1))
+                .max(4);
+            gutter_cols += num_w + 1;
+        }
+        if !theme.strip_signs && cell_opt.and_then(|c| c.marker.as_char()).is_some() {
+            gutter_cols += 1;
+        }
+        let code_w = w.saturating_sub(gutter_cols).max(1);
+        cell_opt
+            .map_or(1, |c| count_wrap_slices(&c.text, code_w))
+            .max(1)
+    }
+}
+
 /// Paints the visible viewport of a `DiffDocument`.
 pub fn paint_diff<W: Write>(
     writer: &mut W,
@@ -182,6 +257,35 @@ pub fn paint_diff<W: Write>(
     if soft_wrap {
         let mut screen_row = 0usize;
         let mut line_idx = viewport.scroll_offset;
+        if viewport.cursor > line_idx && viewport.cursor < doc.len() && visible_height > 0 {
+            let cursor_h = wrapped_row_height(
+                &doc.rows[viewport.cursor],
+                is_side_by_side,
+                theme,
+                options,
+                w,
+                lineno_digits,
+            )
+            .min(visible_height);
+            let mut rows_before_cursor = 0usize;
+            let mut min_start = viewport.cursor;
+            for idx in (viewport.scroll_offset..viewport.cursor).rev() {
+                let h = wrapped_row_height(
+                    &doc.rows[idx],
+                    is_side_by_side,
+                    theme,
+                    options,
+                    w,
+                    lineno_digits,
+                );
+                if rows_before_cursor + h + cursor_h > visible_height {
+                    break;
+                }
+                rows_before_cursor += h;
+                min_start = idx;
+            }
+            line_idx = line_idx.max(min_start);
+        }
 
         while screen_row < visible_height {
             if line_idx >= doc.len() {

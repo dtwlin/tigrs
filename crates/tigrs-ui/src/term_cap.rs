@@ -157,6 +157,13 @@ where
         return ColorProfile::TrueColor;
     }
 
+    // Standard 16-color ANSI terminals (vt100, linux console, xterm generic, bare screen)
+    if (term == "linux" || term.starts_with("vt") || term == "xterm" || term == "screen")
+        && !term.contains("256")
+    {
+        return ColorProfile::Ansi16;
+    }
+
     // 256-color terminals
     if term.contains("256color")
         || term.contains("256")
@@ -164,11 +171,6 @@ where
         || term.contains("screen")
     {
         return ColorProfile::Ansi256;
-    }
-
-    // Standard 16-color ANSI terminals (vt100, linux console, xterm generic)
-    if term == "linux" || term.starts_with("vt") || term == "xterm" || term == "screen" {
-        return ColorProfile::Ansi16;
     }
 
     // Default to Ansi256 on unspecified POSIX terminals
@@ -978,7 +980,30 @@ mod tests {
                 None
             }
         });
-        assert_eq!(caps_screen.color_profile, ColorProfile::Ansi256);
+        assert_eq!(caps_screen.color_profile, ColorProfile::Ansi16);
+
+        let caps_screen_256 = TerminalCapabilities::from_env(|k| {
+            if k == "TERM" {
+                Some("screen-256color".to_string())
+            } else {
+                None
+            }
+        });
+        assert_eq!(caps_screen_256.color_profile, ColorProfile::Ansi256);
+
+        let caps_sync_off = TerminalCapabilities::from_env(|k| match k {
+            "TERM" => Some("xterm-kitty".to_string()),
+            "TIGRS_SYNC_OUTPUT" => Some("0".to_string()),
+            _ => None,
+        });
+        assert!(!caps_sync_off.supports_synchronized_output);
+
+        let caps_sync_on = TerminalCapabilities::from_env(|k| match k {
+            "TERM" => Some("xterm".to_string()),
+            "TIGRS_SYNC_OUTPUT" => Some("1".to_string()),
+            _ => None,
+        });
+        assert!(caps_sync_on.supports_synchronized_output);
 
         let caps_vt = TerminalCapabilities::from_env(|k| {
             if k == "TERM" {

@@ -379,6 +379,13 @@ impl GraphRowBuilder {
                 MAX_GRAPH_LANES - 1
             };
 
+        let mut pre_existing_mask: u16 = 0;
+        for (i, lane) in self.active_lanes.iter().enumerate().take(MAX_GRAPH_LANES) {
+            if lane.is_some() && i != lane_idx {
+                pre_existing_mask |= 1 << i;
+            }
+        }
+
         // 2. Allocate or find lanes for secondary parents (merges)
         let mut merge_lanes = Vec::new();
         if is_merge {
@@ -409,6 +416,8 @@ impl GraphRowBuilder {
         }
 
         let num_lanes = (max_col + 1).min(MAX_GRAPH_LANES);
+        let min_merge = merge_lanes.iter().copied().min().unwrap_or(lane_idx);
+        let max_merge = merge_lanes.iter().copied().max().unwrap_or(lane_idx);
 
         // 4. Assign precise glyph to each column
         let mut glyphs: u64 = 0;
@@ -416,7 +425,7 @@ impl GraphRowBuilder {
             let glyph = if i == lane_idx {
                 if is_root {
                     GraphGlyph::Initial
-                } else if !merge_lanes.is_empty() {
+                } else if merge_lanes.iter().any(|&m| m > lane_idx) {
                     GraphGlyph::MergeFork
                 } else if is_merge {
                     GraphGlyph::Merge
@@ -424,18 +433,22 @@ impl GraphRowBuilder {
                     GraphGlyph::Commit
                 }
             } else if merge_lanes.contains(&i) {
-                if let Some(&max_m) = merge_lanes.iter().max() {
-                    if i < max_m {
+                if i < lane_idx {
+                    if (pre_existing_mask & (1 << i)) != 0 {
+                        GraphGlyph::Fork
+                    } else if i > min_merge {
                         GraphGlyph::MultiMerge
                     } else {
-                        GraphGlyph::BranchMerge
+                        GraphGlyph::TurnDown
                     }
+                } else if i < max_merge {
+                    GraphGlyph::MultiMerge
                 } else {
                     GraphGlyph::BranchMerge
                 }
             } else if !merge_lanes.is_empty()
-                && i > lane_idx.min(*merge_lanes.iter().min().unwrap_or(&lane_idx))
-                && i < lane_idx.max(*merge_lanes.iter().max().unwrap_or(&lane_idx))
+                && i > lane_idx.min(min_merge)
+                && i < lane_idx.max(max_merge)
             {
                 if self.active_lanes.get(i).and_then(|&l| l).is_some() {
                     GraphGlyph::CrossOver
@@ -485,6 +498,23 @@ impl GraphRowBuilder {
                         let join_val = GraphGlyph::Join as u64;
                         let mask = !(0x0F << (lane_idx * 4));
                         glyphs = (glyphs & mask) | (join_val << (lane_idx * 4));
+                    } else if !is_merge && target > lane_idx && target < MAX_GRAPH_LANES {
+                        // Connect intermediate lanes between lane_idx and target horizontally
+                        for i in (lane_idx + 1)..target {
+                            if i < MAX_GRAPH_LANES {
+                                let conn_glyph =
+                                    if self.active_lanes.get(i).and_then(|&l| l).is_some() {
+                                        GraphGlyph::CrossOver as u64
+                                    } else {
+                                        GraphGlyph::Horizontal as u64
+                                    };
+                                let mask = !(0x0F << (i * 4));
+                                glyphs = (glyphs & mask) | (conn_glyph << (i * 4));
+                            }
+                        }
+                        let target_val = GraphGlyph::CrossOver as u64;
+                        let mask = !(0x0F << (target * 4));
+                        glyphs = (glyphs & mask) | (target_val << (target * 4));
                     }
                     self.active_lanes[lane_idx] = None;
                 }
@@ -759,5 +789,48 @@ mod tests {
         let row2 = CompactGraphRow::new(0, 2, false, 0b11, glyphs);
         let rendered = row2.to_colored_graph_string(LineGraphics::Utf8);
         assert!(rendered.contains("  "));
+    }
+
+    #[test]
+    fn test_graph_octopus_merge_and_lane_overflow_and_disjoint_root() {
+        let oid = |n: u8| {
+            let mut hex = [b'0'; 40];
+            hex[38] = b'0' + (n / 10);
+            hex[39] = b'0' + (n % 10);
+            ObjectId::from_hex(&hex).unwrap()
+        };
+
+        let mut builder = GraphRowBuilder::new();
+        // 1. Seed lane 0 and lane 1, then retire lane 0 via a disjoint root commit
+        let r0 = oid(1);
+        let m_right = oid(2);
+        let p_first = oid(3);
+        let p_second_left = oid(4);
+        let _ = builder.process_commit(oid(5), &[r0, m_right]);
+        // r0 is a root commit in lane 0 -> frees lane 0 while lane 1 stays active with m_right
+        let row_disjoint_root = builder.process_commit(r0, &[]);
+        assert_eq!(row_disjoint_root.glyph_at(0), GraphGlyph::Initial);
+        assert_eq!(row_disjoint_root.glyph_at(1), GraphGlyph::Vertical);
+
+        // 2. Merge commit in lane 1 (`m_right`) allocating secondary parent `p_second_left` into free lane 0 (`i < lane_idx`)
+        let row_rtl_merge = builder.process_commit(m_right, &[p_first, p_second_left]);
+        assert_eq!(row_rtl_merge.glyph_at(0), GraphGlyph::TurnDown);
+        assert_eq!(row_rtl_merge.glyph_at(1), GraphGlyph::Merge);
+        assert_eq!(row_rtl_merge.to_graph_string(LineGraphics::Utf8), " ╭ ●");
+        assert_eq!(row_rtl_merge.to_graph_string(LineGraphics::Ascii), " . M");
+
+        // 3. Merge commit in lane 1 where secondary parent `p_second_left` is ALREADY active in lane 0 (`Fork`)
+        let next_in_lane1 = oid(6);
+        builder.active_lanes[1] = Some(next_in_lane1);
+        let row_rtl_fork = builder.process_commit(next_in_lane1, &[p_first, p_second_left]);
+        assert_eq!(row_rtl_fork.glyph_at(0), GraphGlyph::Fork);
+        assert_eq!(row_rtl_fork.glyph_at(1), GraphGlyph::Merge);
+        assert_eq!(row_rtl_fork.to_graph_string(LineGraphics::Utf8), " ├ ●");
+        assert_eq!(row_rtl_fork.to_graph_string(LineGraphics::Ascii), " + M");
+
+        // 4. Non-merge commit in lane 0 joining into `p_first` in lane 1 (`target > lane_idx`)
+        let row_join_right = builder.process_commit(p_second_left, &[p_first]);
+        assert_eq!(row_join_right.glyph_at(0), GraphGlyph::Commit);
+        assert_eq!(row_join_right.glyph_at(1), GraphGlyph::CrossOver);
     }
 }

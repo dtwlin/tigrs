@@ -520,7 +520,7 @@ pub fn scroll_view_first_col(app: &mut AppState, kind: ViewKind) {
     }
 }
 
-/// Refreshes the split diff pane after `kind`'s selection may have moved,
+/// Refreshes the split diff or blob pane after `kind`'s selection may have moved,
 /// and triggers speculative diff prefetching on idle when single-pane.
 pub fn sync_split_views_after_scroll(app: &mut AppState, kind: ViewKind) {
     match kind {
@@ -532,7 +532,89 @@ pub fn sync_split_views_after_scroll(app: &mut AppState, kind: ViewKind) {
         ViewKind::Refs | ViewKind::Stash | ViewKind::Reflog | ViewKind::Blame | ViewKind::Log => {
             sync_split_commit_diff_if_open(app, kind);
         }
+        ViewKind::Tree => sync_split_tree_blob_if_open(app),
+        ViewKind::Grep => sync_split_grep_blob_if_open(app),
         _ => {}
+    }
+}
+
+/// Synchronizes the split `BlobView` pane with `TreeView`'s selected file entry if open.
+pub fn sync_split_tree_blob_if_open(app: &mut AppState) {
+    if !app.views.view_stack.contains(&ViewKind::Blob) || app.views.blob_view.is_none() {
+        return;
+    }
+    let Some((entry_kind, entry_oid, entry_path, commit_id)) = app
+        .views
+        .tree_view
+        .as_ref()
+        .and_then(|t| match t.selected_row()? {
+            crate::view::TreeRow::Entry(e) if !e.is_dir() => {
+                Some((e.kind, e.oid, e.path.clone(), t.commit_oid()))
+            }
+            _ => None,
+        })
+    else {
+        return;
+    };
+    if app.views.blob_view.as_ref().is_some_and(|bv| {
+        bv.commit_oid() == commit_id && bv.blob_oid() == entry_oid && bv.path() == entry_path
+    }) {
+        return;
+    }
+    let Some(engine) = &app.engine else {
+        return;
+    };
+    let blob_res = if entry_kind == tigrs_git::TreeEntryKind::Commit {
+        Ok(tigrs_git::BlobContent {
+            oid: entry_oid,
+            path: entry_path,
+            size: 0,
+            is_binary: false,
+            lines: tigrs_core::LineBuffer::from(vec![format!("Subproject commit {entry_oid}")]),
+        })
+    } else {
+        engine.read_blob(entry_oid, &entry_path)
+    };
+    if let Ok(blob) = blob_res {
+        app.views.blob_view = Some(crate::view::BlobView::new_with_options(
+            commit_id,
+            blob,
+            &app.options,
+        ));
+    }
+}
+
+/// Synchronizes the split `BlobView` pane with `GrepView`'s selected match if open.
+pub fn sync_split_grep_blob_if_open(app: &mut AppState) {
+    if !app.views.view_stack.contains(&ViewKind::Blob) || app.views.blob_view.is_none() {
+        return;
+    }
+    let Some((path, line_num)) = app
+        .views
+        .grep_view
+        .as_ref()
+        .and_then(|g| g.selected_match().map(|m| (m.path.clone(), m.line_num)))
+    else {
+        return;
+    };
+    let Some(engine) = &app.engine else {
+        return;
+    };
+    let Ok(head_id) = engine.head_commit_id() else {
+        return;
+    };
+    let visible = app.visible_height_for(ViewKind::Blob, 24);
+    if let Some(ref mut bv) = app.views.blob_view
+        && bv.commit_oid() == head_id
+        && bv.path() == path
+    {
+        bv.set_cursor(line_num.saturating_sub(1), visible);
+        return;
+    }
+    if let Ok(blob) = engine.read_blob_at_commit_path(head_id, &path) {
+        let mut bv = crate::view::BlobView::new_with_options(head_id, blob, &app.options);
+        bv.set_cursor(line_num.saturating_sub(1), visible);
+        app.views.blob_view = Some(bv);
     }
 }
 

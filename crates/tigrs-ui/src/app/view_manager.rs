@@ -181,7 +181,7 @@ impl ViewManager {
             .find(|&&v| v != primary)
             .copied()?;
 
-        if secondary != ViewKind::Diff && secondary != ViewKind::Pager {
+        if !matches!(secondary, ViewKind::Diff | ViewKind::Pager | ViewKind::Blob) {
             return None;
         }
 
@@ -221,12 +221,14 @@ impl ViewManager {
     /// Pushes a view kind onto the stack.
     pub fn push_view(&mut self, kind: ViewKind) {
         self.ensure_view_stack();
-        if (kind == ViewKind::Diff || kind == ViewKind::Pager)
+        if matches!(kind, ViewKind::Diff | ViewKind::Pager | ViewKind::Blob)
             && let Some(current) = self
                 .view_stack
                 .iter()
                 .rev()
-                .find(|&&v| v != kind && v != ViewKind::Diff && v != ViewKind::Pager)
+                .find(|&&v| {
+                    v != kind && !matches!(v, ViewKind::Diff | ViewKind::Pager | ViewKind::Blob)
+                })
                 .copied()
         {
             self.split_base = Some(current);
@@ -251,7 +253,7 @@ impl ViewManager {
         let has_split_secondary = self
             .view_stack
             .iter()
-            .any(|&v| v == ViewKind::Diff || v == ViewKind::Pager);
+            .any(|&v| matches!(v, ViewKind::Diff | ViewKind::Pager | ViewKind::Blob));
         if self.view_stack.len() < 2 || !has_split_secondary {
             self.maximized = false;
         }

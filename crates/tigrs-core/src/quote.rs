@@ -97,9 +97,9 @@ pub enum QuoteState {
         /// Bitmask stack of enclosing `InnerQuote` states (`1` = `DoubleQuoted`, `0` = `Unquoted`)
         /// for each nested `(` / `$(` level so closing `)` restores the exact enclosing quote state.
         parent_double_mask: u64,
-        /// Whether the cursor is currently inside a backtick `` `...` `` within the subshell.
-        in_backtick: bool,
-        /// Active quote state inside the current `$(...)` subshell level.
+        /// Inner quote state if the cursor is currently inside a backtick `` `...` `` within the subshell.
+        in_backtick: Option<InnerQuote>,
+        /// Active quote state inside the current `$(...)` subshell level (outside any backtick).
         inner: InnerQuote,
         /// Whether the immediately preceding character inside the subshell was an unescaped `$`.
         inner_dollar: bool,
@@ -127,25 +127,20 @@ impl QuoteState {
                         inner,
                         ..
                     } => {
-                        if in_backtick && inner == InnerQuote::DoubleQuoted && ch == '"' {
-                            *self = Self::CommandSub {
-                                outer_double_quoted,
-                                depth,
-                                parent_double_mask,
-                                in_backtick,
-                                inner: InnerQuote::Unquoted,
-                                inner_dollar: false,
-                            };
-                        } else {
-                            *self = Self::CommandSub {
-                                outer_double_quoted,
-                                depth,
-                                parent_double_mask,
-                                in_backtick,
-                                inner,
-                                inner_dollar: false,
-                            };
-                        }
+                        let next_bt = match in_backtick {
+                            Some(bt_inner) if inner == InnerQuote::DoubleQuoted && ch == '"' => {
+                                Some(bt_inner.toggle_double())
+                            }
+                            other => other,
+                        };
+                        *self = Self::CommandSub {
+                            outer_double_quoted,
+                            depth,
+                            parent_double_mask,
+                            in_backtick: next_bt,
+                            inner,
+                            inner_dollar: false,
+                        };
                     }
                     Self::DoubleQuotedBacktick(inner) if ch == '"' => {
                         // Inside `"`...`"`, `\"` escapes `"` for the outer double quote and delivers
@@ -172,7 +167,7 @@ impl QuoteState {
                             outer_double_quoted: false,
                             depth: 1,
                             parent_double_mask: 0,
-                            in_backtick: false,
+                            in_backtick: None,
                             inner: InnerQuote::Unquoted,
                             inner_dollar: false,
                         };
@@ -205,7 +200,7 @@ impl QuoteState {
                             outer_double_quoted: true,
                             depth: 1,
                             parent_double_mask: 0,
-                            in_backtick: false,
+                            in_backtick: None,
                             inner: InnerQuote::Unquoted,
                             inner_dollar: false,
                         };
@@ -227,17 +222,63 @@ impl QuoteState {
                     inner,
                     inner_dollar,
                 } => {
-                    if !in_backtick
-                        && inner_dollar
-                        && ch == '('
-                        && inner != InnerQuote::SingleQuoted
-                    {
+                    if let Some(bt_inner) = in_backtick {
+                        match ch {
+                            '\\' => {
+                                escaped = true;
+                            }
+                            '`' => {
+                                *self = Self::CommandSub {
+                                    outer_double_quoted,
+                                    depth,
+                                    parent_double_mask,
+                                    in_backtick: None,
+                                    inner,
+                                    inner_dollar: false,
+                                };
+                            }
+                            '\'' => {
+                                *self = Self::CommandSub {
+                                    outer_double_quoted,
+                                    depth,
+                                    parent_double_mask,
+                                    in_backtick: Some(bt_inner.toggle_single()),
+                                    inner,
+                                    inner_dollar: false,
+                                };
+                            }
+                            '"' => {
+                                if inner == InnerQuote::DoubleQuoted {
+                                    *self = Self::CommandSub {
+                                        outer_double_quoted,
+                                        depth,
+                                        parent_double_mask,
+                                        in_backtick: None,
+                                        inner: InnerQuote::Unquoted,
+                                        inner_dollar: false,
+                                    };
+                                } else {
+                                    *self = Self::CommandSub {
+                                        outer_double_quoted,
+                                        depth,
+                                        parent_double_mask,
+                                        in_backtick: Some(bt_inner.toggle_double()),
+                                        inner,
+                                        inner_dollar: false,
+                                    };
+                                }
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
+                    if inner_dollar && ch == '(' && inner != InnerQuote::SingleQuoted {
                         let parent_bit = u64::from(inner == InnerQuote::DoubleQuoted);
                         *self = Self::CommandSub {
                             outer_double_quoted,
                             depth: depth.saturating_add(1),
                             parent_double_mask: (parent_double_mask << 1) | parent_bit,
-                            in_backtick: false,
+                            in_backtick: None,
                             inner: InnerQuote::Unquoted,
                             inner_dollar: false,
                         };
@@ -251,7 +292,7 @@ impl QuoteState {
                                     outer_double_quoted,
                                     depth,
                                     parent_double_mask,
-                                    in_backtick,
+                                    in_backtick: None,
                                     inner,
                                     inner_dollar: false,
                                 };
@@ -261,52 +302,52 @@ impl QuoteState {
                                     outer_double_quoted,
                                     depth,
                                     parent_double_mask,
-                                    in_backtick: !in_backtick,
+                                    in_backtick: Some(InnerQuote::Unquoted),
                                     inner,
                                     inner_dollar: false,
                                 };
                             }
-                            '\'' if !in_backtick => {
+                            '\'' => {
                                 *self = Self::CommandSub {
                                     outer_double_quoted,
                                     depth,
                                     parent_double_mask,
-                                    in_backtick,
+                                    in_backtick: None,
                                     inner: InnerQuote::SingleQuoted,
                                     inner_dollar: false,
                                 };
                             }
-                            '"' if !in_backtick => {
+                            '"' => {
                                 *self = Self::CommandSub {
                                     outer_double_quoted,
                                     depth,
                                     parent_double_mask,
-                                    in_backtick,
+                                    in_backtick: None,
                                     inner: InnerQuote::DoubleQuoted,
                                     inner_dollar: false,
                                 };
                             }
-                            '$' if !in_backtick => {
+                            '$' => {
                                 *self = Self::CommandSub {
                                     outer_double_quoted,
                                     depth,
                                     parent_double_mask,
-                                    in_backtick,
+                                    in_backtick: None,
                                     inner,
                                     inner_dollar: true,
                                 };
                             }
-                            '(' if !in_backtick => {
+                            '(' => {
                                 *self = Self::CommandSub {
                                     outer_double_quoted,
                                     depth: depth.saturating_add(1),
                                     parent_double_mask: parent_double_mask << 1,
-                                    in_backtick,
+                                    in_backtick: None,
                                     inner,
                                     inner_dollar: false,
                                 };
                             }
-                            ')' if !in_backtick => {
+                            ')' => {
                                 if depth <= 1 {
                                     *self = if outer_double_quoted {
                                         Self::DoubleQuoted
@@ -323,7 +364,7 @@ impl QuoteState {
                                         outer_double_quoted,
                                         depth: depth - 1,
                                         parent_double_mask: parent_double_mask >> 1,
-                                        in_backtick: false,
+                                        in_backtick: None,
                                         inner: restored_inner,
                                         inner_dollar: false,
                                     };
@@ -334,7 +375,7 @@ impl QuoteState {
                                     outer_double_quoted,
                                     depth,
                                     parent_double_mask,
-                                    in_backtick,
+                                    in_backtick: None,
                                     inner,
                                     inner_dollar: false,
                                 };
@@ -346,7 +387,7 @@ impl QuoteState {
                                     outer_double_quoted,
                                     depth,
                                     parent_double_mask,
-                                    in_backtick,
+                                    in_backtick: None,
                                     inner: InnerQuote::Unquoted,
                                     inner_dollar: false,
                                 };
@@ -359,7 +400,7 @@ impl QuoteState {
                                     outer_double_quoted,
                                     depth,
                                     parent_double_mask,
-                                    in_backtick,
+                                    in_backtick: None,
                                     inner,
                                     inner_dollar: false,
                                 };
@@ -369,27 +410,27 @@ impl QuoteState {
                                     outer_double_quoted,
                                     depth,
                                     parent_double_mask,
-                                    in_backtick: !in_backtick,
+                                    in_backtick: Some(InnerQuote::Unquoted),
                                     inner,
                                     inner_dollar: false,
                                 };
                             }
-                            '"' if !in_backtick => {
+                            '"' => {
                                 *self = Self::CommandSub {
                                     outer_double_quoted,
                                     depth,
                                     parent_double_mask,
-                                    in_backtick,
+                                    in_backtick: None,
                                     inner: InnerQuote::Unquoted,
                                     inner_dollar: false,
                                 };
                             }
-                            '$' if !in_backtick => {
+                            '$' => {
                                 *self = Self::CommandSub {
                                     outer_double_quoted,
                                     depth,
                                     parent_double_mask,
-                                    in_backtick,
+                                    in_backtick: None,
                                     inner,
                                     inner_dollar: true,
                                 };
@@ -399,7 +440,7 @@ impl QuoteState {
                                     outer_double_quoted,
                                     depth,
                                     parent_double_mask,
-                                    in_backtick,
+                                    in_backtick: None,
                                     inner,
                                     inner_dollar: false,
                                 };
@@ -490,11 +531,11 @@ pub fn append_quoted_in_context(result: &mut String, val: &str, quote_state: Quo
             inner_dollar,
             ..
         } => {
-            if in_backtick {
-                if inner != InnerQuote::SingleQuoted {
+            if let Some(bt_inner) = in_backtick {
+                if bt_inner != InnerQuote::SingleQuoted {
                     neutralize_trailing_backslashes(result);
                 }
-                push_backtick_escaped(result, &quoted, inner, inner == InnerQuote::DoubleQuoted);
+                push_backtick_escaped(result, &quoted, bt_inner, inner == InnerQuote::DoubleQuoted);
             } else {
                 match inner {
                     InnerQuote::Unquoted => {
@@ -797,7 +838,7 @@ pub fn verify_shell_safety(cmd: &str) -> Result<()> {
                         outer_double_quoted: false,
                         depth: 1,
                         parent_double_mask: 0,
-                        in_backtick: false,
+                        in_backtick: None,
                         inner: InnerQuote::Unquoted,
                         inner_dollar: false,
                     };
@@ -863,7 +904,7 @@ pub fn verify_shell_safety(cmd: &str) -> Result<()> {
                         outer_double_quoted: true,
                         depth: 1,
                         parent_double_mask: 0,
-                        in_backtick: false,
+                        in_backtick: None,
                         inner: InnerQuote::Unquoted,
                         inner_dollar: false,
                     };
@@ -904,7 +945,8 @@ pub fn verify_shell_safety(cmd: &str) -> Result<()> {
                 inner,
                 inner_dollar,
             } => {
-                if !in_backtick && inner == InnerQuote::Unquoted && ch == ')' && depth <= 1 {
+                if in_backtick.is_none() && inner == InnerQuote::Unquoted && ch == ')' && depth <= 1
+                {
                     if subshell_buf.contains("\"'$(") || subshell_buf.contains("\"'`") {
                         return Err(TigError::Command(
                             "Subshell contains unsafe double-quoted command substitution"
@@ -1025,6 +1067,80 @@ mod tests {
         assert_eq!(shell_quote("master"), "'master'");
         assert_eq!(shell_quote("HEAD~1"), "'HEAD~1'");
         assert_eq!(shell_quote("abc1234567890"), "'abc1234567890'");
+    }
+
+    #[test]
+    fn test_quote_state_machine_and_subshell_backtick_execution() {
+        let payload = "a'b\"c$(id)`id`$VAR\\end";
+        let mut map: HashMap<&str, &str> = HashMap::new();
+        map.insert("branch", payload);
+
+        let templates = [
+            "printf '%s' %(branch)",
+            "printf '%s' $%(branch)",
+            "printf '%s' \"%(branch)\"",
+            "printf '%s' \"$%(branch)\"",
+            "printf '%s' '%(branch)'",
+            "printf '%s' $(printf '%s' %(branch))",
+            "printf '%s' $(printf '%s' $%(branch))",
+            "printf '%s' $(printf '%s' '%(branch)')",
+            "printf '%s' $(printf '%s' \"%(branch)\")",
+            "printf '%s' \"$(printf '%s' \"$(printf '%s' %(branch))\")\"",
+            "printf '%s' `printf '%s' %(branch)`",
+            "printf '%s' `printf '%s' '%(branch)'`",
+            "printf '%s' `printf '%s' \"%(branch)\"`",
+            "printf '%s' \"`printf '%s' %(branch)`\"",
+            "printf '%s' \"`printf '%s' '%(branch)'`\"",
+            "printf '%s' \"`printf '%s' \\\"%(branch)\\\"`\"",
+            "printf '%s' $(printf '%s' `printf '%s' %(branch)`)",
+            "printf '%s' $(printf '%s' \"`printf '%s' %(branch)`\")",
+            "printf '%s' $(printf '%s' \"`printf '%s' '%(branch)'`\")",
+            "printf '%s' $(printf '%s' \"`printf '%s' \\\"%(branch)\\\"`\")",
+        ];
+
+        for tmpl in templates {
+            let expanded = interpolate_command(tmpl, &map)
+                .unwrap_or_else(|e| panic!("interpolate failed for {tmpl}: {e}"));
+            let out = std::process::Command::new("sh")
+                .args(["-c", &expanded])
+                .output()
+                .expect("sh execution");
+            assert!(
+                out.status.success(),
+                "sh failed for template `{tmpl}` -> `{expanded}`: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                stdout.ends_with(payload),
+                "command injection or quote corruption in `{tmpl}` -> `{expanded}`: got `{stdout}`, expected literal suffix `{payload}`"
+            );
+        }
+    }
+
+    #[test]
+    fn test_quote_state_edge_transitions_and_verify_shell_safety_errors() {
+        // Test Dollar transitions followed by \, ', ", $, `, and normal chars
+        let mut st = QuoteState::Unquoted;
+        st.advance("$\\a$'x'$\"y\"$$$`echo hi`$( (echo a) )");
+        assert_eq!(st, QuoteState::Unquoted);
+
+        let mut st_dq = QuoteState::Unquoted;
+        st_dq.advance("\"$\\a$\"\"$$\"\"$`echo hi`\"");
+        assert_eq!(st_dq, QuoteState::Unquoted);
+
+        // Trailing backslash neutralization
+        let mut buf = String::from("echo \\");
+        append_quoted_in_context(&mut buf, "val", QuoteState::Unquoted);
+        assert_eq!(buf, "echo \\\\'val'");
+
+        // Error branches in verify_shell_safety
+        assert!(verify_shell_safety("echo `unclosed 'quote`").is_err());
+        assert!(verify_shell_safety("echo \"`unclosed 'quote`\"").is_err());
+        assert!(verify_shell_safety("echo \"`unescaped \" quote`\"").is_err());
+        assert!(verify_shell_safety("echo $(echo \"'$(id)\")").is_err());
+        assert!(verify_shell_safety("echo $(echo unclosed").is_err());
+        assert!(verify_shell_safety("echo $").is_ok());
     }
 
     #[test]
@@ -1196,7 +1312,7 @@ mod tests {
 
         // Empty string
         let words = split_shell_words("").unwrap();
-        assert!(words.is_empty());
+        assert_eq!(words, Vec::<String>::new());
 
         // Error cases: unclosed single quote
         assert!(split_shell_words("git log 'unclosed").is_err());

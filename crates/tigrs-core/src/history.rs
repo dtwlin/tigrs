@@ -565,6 +565,23 @@ mod tests {
         hist_invalid.add("test entry");
         assert!(hist_invalid.save().is_err());
 
+        // Oversized history file (> 4 MiB) is rejected before reading into memory
+        let oversize_path = temp_dir.join("oversize_history");
+        let f = File::create(&oversize_path).unwrap();
+        f.set_len(HistoryManager::MAX_HISTORY_FILE_BYTES + 1)
+            .unwrap();
+        drop(f);
+        let mut hist_oversize = HistoryManager::default();
+        let err = hist_oversize.load_from_path(&oversize_path).unwrap_err();
+        assert!(err.to_string().contains("exceeds 4 MiB limit"));
+
+        // Non-existent file is a clean no-op
+        assert!(
+            hist_oversize
+                .load_from_path(&temp_dir.join("missing_history"))
+                .is_ok()
+        );
+
         let _ = fs::remove_dir_all(&temp_dir);
     }
 }

@@ -1482,7 +1482,7 @@ pub fn build_diff_document_cancellable_with_state(
             None
         };
 
-        let mut current_hunk_idx: Option<usize> = None;
+        let mut current_hunk_idx: Option<usize> = (!file.hunks.is_empty()).then_some(0);
         let mut section_lines: Vec<ExpandedLine> = Vec::new();
 
         let flush_section =
@@ -1514,6 +1514,7 @@ pub fn build_diff_document_cancellable_with_state(
                     build_unified_lines(
                         lines,
                         cur_f,
+                        hunk_idx,
                         opts,
                         hl,
                         hl_budget,
@@ -1894,6 +1895,7 @@ impl FileSyntaxHighlighter {
 fn build_unified_lines(
     lines: &[ExpandedLine],
     cur_f: Option<u32>,
+    hunk_idx: Option<usize>,
     opts: &ViewOptions,
     mut hl: Option<&mut FileSyntaxHighlighter>,
     hl_budget: &mut usize,
@@ -1903,6 +1905,11 @@ fn build_unified_lines(
     line_to_hunk: &mut Vec<Option<HunkLocation>>,
 ) {
     let tab_size = opts.tab_size;
+    let enclosing_hunk = cur_f.zip(hunk_idx).map(|(f_u32, h_idx)| HunkLocation {
+        file_idx: f_u32 as usize,
+        hunk_idx: h_idx,
+        line_idx: None,
+    });
     let mut i = 0;
 
     while i < lines.len() {
@@ -1924,7 +1931,7 @@ fn build_unified_lines(
                 DiffLineType::DiffContext,
             ));
             line_to_file.push(cur_f);
-            line_to_hunk.push(line.anchor);
+            line_to_hunk.push(line.anchor.or(enclosing_hunk));
 
             if line.no_newline_at_eof {
                 rows.push(RowPair::unified(
@@ -1933,7 +1940,7 @@ fn build_unified_lines(
                     DiffLineType::Delimiter,
                 ));
                 line_to_file.push(cur_f);
-                line_to_hunk.push(None);
+                line_to_hunk.push(enclosing_hunk);
             }
             i += 1;
             continue;
@@ -2002,7 +2009,7 @@ fn build_unified_lines(
             }
             rows.push(RowPair::unified(cell, line.anchor, DiffLineType::DiffDel));
             line_to_file.push(cur_f);
-            line_to_hunk.push(line.anchor);
+            line_to_hunk.push(line.anchor.or(enclosing_hunk));
 
             if line.no_newline_at_eof {
                 rows.push(RowPair::unified(
@@ -2011,7 +2018,7 @@ fn build_unified_lines(
                     DiffLineType::Delimiter,
                 ));
                 line_to_file.push(cur_f);
-                line_to_hunk.push(None);
+                line_to_hunk.push(enclosing_hunk);
             }
         }
 
@@ -2025,7 +2032,7 @@ fn build_unified_lines(
             }
             rows.push(RowPair::unified(cell, line.anchor, DiffLineType::DiffAdd));
             line_to_file.push(cur_f);
-            line_to_hunk.push(line.anchor);
+            line_to_hunk.push(line.anchor.or(enclosing_hunk));
 
             if line.no_newline_at_eof {
                 rows.push(RowPair::unified(
@@ -2034,7 +2041,7 @@ fn build_unified_lines(
                     DiffLineType::Delimiter,
                 ));
                 line_to_file.push(cur_f);
-                line_to_hunk.push(None);
+                line_to_hunk.push(enclosing_hunk);
             }
         }
     }
@@ -2045,7 +2052,7 @@ fn build_unified_lines(
 fn build_side_by_side_lines(
     lines: &[ExpandedLine],
     cur_f: Option<u32>,
-    _hunk_idx: Option<usize>,
+    hunk_idx: Option<usize>,
     opts: &ViewOptions,
     mut hl: Option<&mut FileSyntaxHighlighter>,
     hl_budget: &mut usize,
@@ -2055,6 +2062,11 @@ fn build_side_by_side_lines(
     line_to_hunk: &mut Vec<Option<HunkLocation>>,
 ) {
     let tab_size = opts.tab_size;
+    let enclosing_hunk = cur_f.zip(hunk_idx).map(|(f_u32, h_idx)| HunkLocation {
+        file_idx: f_u32 as usize,
+        hunk_idx: h_idx,
+        line_idx: None,
+    });
     let mut i = 0;
 
     while i < lines.len() {
@@ -2086,7 +2098,7 @@ fn build_side_by_side_lines(
                 DiffLineType::DiffContext,
             ));
             line_to_file.push(cur_f);
-            line_to_hunk.push(line.anchor);
+            line_to_hunk.push(line.anchor.or(enclosing_hunk));
 
             if line.no_newline_at_eof {
                 let eof_cell = RowCell::new(LineMarker::None, "\\ No newline at end of file", None);
@@ -2097,7 +2109,7 @@ fn build_side_by_side_lines(
                     DiffLineType::Delimiter,
                 ));
                 line_to_file.push(cur_f);
-                line_to_hunk.push(None);
+                line_to_hunk.push(enclosing_hunk);
             }
             i += 1;
             continue;
@@ -2205,7 +2217,7 @@ fn build_side_by_side_lines(
                         DiffLineType::DiffAdd,
                     ));
                     line_to_file.push(cur_f);
-                    line_to_hunk.push(anchor);
+                    line_to_hunk.push(anchor.or(enclosing_hunk));
                 }
                 (Some(oi), None) => {
                     let old_line = &lines[del_start + oi];
@@ -2222,7 +2234,7 @@ fn build_side_by_side_lines(
                         DiffLineType::DiffDel,
                     ));
                     line_to_file.push(cur_f);
-                    line_to_hunk.push(old_line.anchor);
+                    line_to_hunk.push(old_line.anchor.or(enclosing_hunk));
                 }
                 (None, Some(ni)) => {
                     let new_line = &lines[add_start + ni];
@@ -2239,7 +2251,7 @@ fn build_side_by_side_lines(
                         DiffLineType::DiffAdd,
                     ));
                     line_to_file.push(cur_f);
-                    line_to_hunk.push(new_line.anchor);
+                    line_to_hunk.push(new_line.anchor.or(enclosing_hunk));
                 }
                 (None, None) => {}
             }

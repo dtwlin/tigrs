@@ -1362,6 +1362,18 @@ fn build_repo_config_sanitization(work_dir: &Path) -> RepoSanitizationPlan {
     for git_dir in discover_git_metadata_dirs(work_dir) {
         scanner.scan_git_dir(&git_dir);
     }
+    let wt_attrs = work_dir.join(".gitattributes");
+    scanner.watched_files.push(wt_attrs.clone());
+    if let Ok(content) = read_raw_latin1(&wt_attrs) {
+        for line in content.lines() {
+            extract_attribute_drivers_from_line(
+                line,
+                &mut scanner.filter_drivers,
+                &mut scanner.diff_drivers,
+                &mut scanner.merge_drivers,
+            );
+        }
+    }
     scanner.into_plan(work_dir)
 }
 

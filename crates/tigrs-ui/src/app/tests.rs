@@ -5116,3 +5116,343 @@ fn test_render_active_main_view_spotlight_selected_row_full_width_and_lazy_total
         );
     }
 }
+
+#[test]
+fn test_async_worker_completion_handlers_and_epoch_rejection() {
+    let mut app = AppState::default();
+    app.views.main_view = Some(MainView::new("main".to_string()));
+    app.views.diff_view = Some(DiffView::new(test_diff()));
+    app.push_view(ViewKind::Main);
+    app.push_view(ViewKind::Diff);
+    app.diff_task.active_request_id = 5;
+
+    let c_oid = ObjectId::from_bytes_or_panic(&[0x42_u8; 20]);
+    let mut updated_diff = test_diff();
+    updated_diff.commit_id = c_oid;
+    updated_diff.title = Arc::from("Updated async commit diff");
+    let updated_arc = Arc::new(updated_diff);
+
+    // 1. Stale request_id (4 != 5) is rejected by on_diff_result
+    let stale_resp = DiffWorkerResponse {
+        target: DiffRequestTarget::Commit(c_oid),
+        render_key: Some(app.current_diff_render_key()),
+        is_prefetch: false,
+        generation: 0,
+        request_id: 4,
+        result: Ok(Arc::clone(&updated_arc)),
+        precomputed_view: None,
+    };
+    assert!(!on_diff_result(&mut app, stale_resp));
+    assert_eq!(
+        app.views.diff_view.as_ref().unwrap().title(),
+        "Add important feature"
+    );
+
+    // 2. Speculative prefetch (`is_prefetch = true`) populates cache without replacing active diff_view
+    let pre_view = app.create_diff_view(Arc::clone(&updated_arc));
+    let prefetch_resp = DiffWorkerResponse {
+        target: DiffRequestTarget::Commit(c_oid),
+        render_key: Some(app.current_diff_render_key()),
+        is_prefetch: true,
+        generation: 0,
+        request_id: 0,
+        result: Ok(Arc::clone(&updated_arc)),
+        precomputed_view: Some(pre_view),
+    };
+    assert!(!on_diff_result(&mut app, prefetch_resp));
+    assert!(
+        app.diff_document_cache
+            .borrow_mut()
+            .get(c_oid, &app.current_diff_render_key())
+            .is_some(),
+        "Prefetch must populate DiffDocumentCache"
+    );
+    assert_eq!(
+        app.views.diff_view.as_ref().unwrap().title(),
+        "Add important feature"
+    );
+
+    // 3. Matching request_id (5 == 5) updates active diff_view and returns true (needs_render)
+    let valid_resp = DiffWorkerResponse {
+        target: DiffRequestTarget::Commit(c_oid),
+        render_key: Some(app.current_diff_render_key()),
+        is_prefetch: false,
+        generation: 0,
+        request_id: 5,
+        result: Ok(Arc::clone(&updated_arc)),
+        precomputed_view: None,
+    };
+    assert!(on_diff_result(&mut app, valid_resp));
+    assert_eq!(
+        app.views.diff_view.as_ref().unwrap().title(),
+        "Updated async commit diff"
+    );
+
+    // 4. on_blame_result: stale request_id rejected, valid Initial/Parent/Back applied
+    app.views.blame_view = Some(BlameView::from_blob(
+        c_oid,
+        tigrs_git::BlobContent {
+            oid: c_oid,
+            path: "src/lib.rs".to_string(),
+            size: 17,
+            is_binary: false,
+            lines: tigrs_core::LineBuffer::from(vec!["pub fn hello() {}".to_string()]),
+        },
+    ));
+    app.push_view(ViewKind::Blame);
+    app.blame_task.active_request_id = 9;
+
+    let blame_res = tigrs_git::BlameResult {
+        commit_id: c_oid,
+        path: "src/lib.rs".to_string(),
+        is_binary: false,
+        lines: vec![tigrs_git::BlameLine {
+            line_number: 1,
+            commit_id: c_oid,
+            parent_commit_id: None,
+            short_commit_id: Arc::from("42424242"),
+            author: Arc::from("Alice Developer"),
+            author_date: Arc::from("2026-09-01"),
+            summary: Arc::from("initial"),
+            content: "pub fn hello() {}".to_string(),
+            is_hunk_start: true,
+            source_path: None,
+            source_line_number: 1,
+        }],
+    };
+    assert!(!on_blame_result(
+        &mut app,
+        BlameWorkerResponse {
+            commit_id: Some(c_oid),
+            path: "src/lib.rs".to_string(),
+            request_id: 8,
+            nav: BlameNavKind::Initial,
+            result: Ok(blame_res.clone()),
+        }
+    ));
+    assert!(app.views.blame_view.as_ref().unwrap().is_loading());
+
+    assert!(on_blame_result(
+        &mut app,
+        BlameWorkerResponse {
+            commit_id: Some(c_oid),
+            path: "src/lib.rs".to_string(),
+            request_id: 9,
+            nav: BlameNavKind::Initial,
+            result: Ok(blame_res),
+        }
+    ));
+    assert!(!app.views.blame_view.as_ref().unwrap().is_loading());
+    assert_eq!(app.views.blame_view.as_ref().unwrap().line_count(), 1);
+
+    // 5. on_watcher_event arms debounce timer
+    let mut debounce = Debounce::new(std::time::Duration::from_millis(50));
+    on_watcher_event(&mut app, None, &mut debounce);
+    assert!(
+        debounce
+            .time_until_fire(std::time::Instant::now())
+            .is_some()
+    );
+}
+
+#[test]
+fn test_split_view_tree_and_grep_blob_sync_and_parent_stepping() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path();
+    let run = |args: &[&str]| {
+        let st = std::process::Command::new("git")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(args)
+            .current_dir(p)
+            .status()
+            .unwrap();
+        assert!(st.success());
+    };
+    run(&["init", "-b", "main"]);
+    run(&["config", "user.name", "Alice Developer"]);
+    run(&["config", "user.email", "alice@example.com"]);
+    std::fs::write(p.join("alpha.rs"), "fn alpha() {}\n").unwrap();
+    std::fs::write(p.join("beta.rs"), "fn beta() {}\n").unwrap();
+    run(&["add", "."]);
+    run(&["commit", "-m", "initial files"]);
+
+    let engine = GitEngine::open(Some(p)).unwrap();
+    let head_id = engine.head_commit_id().unwrap();
+    let mut app = AppState::with_engine_and_config(Some(engine.clone()), None);
+    let listing = engine.read_tree(head_id, "").unwrap();
+    app.views.tree_view = Some(TreeView::new(listing));
+    app.push_view(ViewKind::Tree);
+
+    // 1. Press Enter on alpha.rs in TreeView: opens BlobView in split mode (Tree + Blob)
+    handle_event_with_dimensions(&key(KeyCode::Enter), &mut app, 120, 40);
+    assert_eq!(app.active_view(), Some(ViewKind::Blob));
+    assert_eq!(
+        app.views.split_views(),
+        Some((ViewKind::Tree, ViewKind::Blob)),
+        "Tree + Blob must form a dual split view"
+    );
+    assert_eq!(app.views.blob_view.as_ref().unwrap().path(), "alpha.rs");
+
+    // 2. While focused in BlobView, press 'J' (Action::Next) to step TreeView down to beta.rs
+    //    and verify BlobView automatically synchronizes to beta.rs!
+    execute_action(&mut app, &Action::Next, 20);
+    assert_eq!(app.views.tree_view.as_ref().unwrap().cursor(), 1);
+    assert_eq!(
+        app.views.blob_view.as_ref().unwrap().path(),
+        "beta.rs",
+        "Stepping parent TreeView via Action::Next must synchronize split BlobView"
+    );
+
+    // 3. Press 'K' (Action::Previous) to step back to alpha.rs
+    execute_action(&mut app, &Action::Previous, 20);
+    assert_eq!(app.views.tree_view.as_ref().unwrap().cursor(), 0);
+    assert_eq!(app.views.blob_view.as_ref().unwrap().path(), "alpha.rs");
+
+    // 4. Test GrepView + BlobView split sync
+    app.pop_active_view(); // pop Blob
+    app.pop_active_view(); // pop Tree
+    let matches = vec![
+        GrepMatch {
+            path: "alpha.rs".to_string(),
+            line_num: 1,
+            content: "fn alpha() {}".to_string(),
+        },
+        GrepMatch {
+            path: "beta.rs".to_string(),
+            line_num: 1,
+            content: "fn beta() {}".to_string(),
+        },
+    ];
+    app.views.grep_view = Some(GrepView::new("fn".to_string(), matches));
+    app.push_view(ViewKind::Grep);
+    handle_event_with_dimensions(&key(KeyCode::Enter), &mut app, 120, 40);
+    assert_eq!(
+        app.views.split_views(),
+        Some((ViewKind::Grep, ViewKind::Blob))
+    );
+    assert_eq!(app.views.blob_view.as_ref().unwrap().path(), "alpha.rs");
+
+    execute_action(&mut app, &Action::Next, 20);
+    assert_eq!(
+        app.views.blob_view.as_ref().unwrap().path(),
+        "beta.rs",
+        "Stepping parent GrepView via Action::Next must synchronize split BlobView"
+    );
+}
+
+#[test]
+fn test_diff_view_revert_hunk_and_enter_opens_blob_and_action_wiring() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path();
+    let run = |args: &[&str]| {
+        let st = std::process::Command::new("git")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(args)
+            .current_dir(p)
+            .status()
+            .unwrap();
+        assert!(st.success());
+    };
+    run(&["init", "-b", "main"]);
+    run(&["config", "user.name", "Alice Developer"]);
+    run(&["config", "user.email", "alice@example.com"]);
+    let orig = (1..=12).fold(String::new(), |mut acc, i| {
+        use std::fmt::Write as _;
+        let _ = writeln!(acc, "line_{i}");
+        acc
+    });
+    std::fs::write(p.join("multi.rs"), &orig).unwrap();
+    run(&["add", "multi.rs"]);
+    run(&["commit", "-m", "initial multi.rs"]);
+
+    // Modify line 1 and line 12 (two distinct hunks)
+    let modified = orig
+        .replace("line_1\n", "line_1_modified\n")
+        .replace("line_12\n", "line_12_modified\n");
+    std::fs::write(p.join("multi.rs"), &modified).unwrap();
+
+    let engine = GitEngine::open(Some(p)).unwrap();
+    let (_src, token) = CancellationToken::new();
+    let report = engine.load_status(&token).unwrap();
+    let mut app = AppState::with_engine_and_config(Some(engine.clone()), None);
+    app.views.status_view = Some(StatusView::new(report));
+    app.push_view(ViewKind::Status);
+
+    // 1. Open DiffView from StatusView and jump to hunk 1
+    handle_event(&key(KeyCode::Enter), &mut app, 24);
+    assert_eq!(app.active_view(), Some(ViewKind::Diff));
+    handle_event(&key(KeyCode::Char(')')), &mut app, 24);
+    assert!(
+        app.views
+            .diff_view
+            .as_ref()
+            .unwrap()
+            .selected_hunk()
+            .is_some()
+    );
+
+    // 2. Press '!' (Action::StatusRevert) inside DiffView to discard hunk 1 only
+    handle_event(&key(KeyCode::Char('!')), &mut app, 24);
+    let on_disk = std::fs::read_to_string(p.join("multi.rs")).unwrap();
+    assert!(
+        on_disk.starts_with("line_1\n"),
+        "Hunk 1 must be reverted in worktree: {on_disk}"
+    );
+    assert!(
+        on_disk.contains("line_12_modified\n"),
+        "Hunk 2 must remain in worktree: {on_disk}"
+    );
+
+    // 3. Move cursor to a diff content line in the remaining hunk and press Enter to open BlobView
+    handle_event(&key(KeyCode::Char(')')), &mut app, 24);
+    handle_event(&key(KeyCode::Char('j')), &mut app, 24);
+    assert!(
+        app.views
+            .diff_view
+            .as_ref()
+            .unwrap()
+            .selected_file_and_lineno()
+            .is_some()
+    );
+    handle_event(&key(KeyCode::Enter), &mut app, 24);
+    assert_eq!(
+        app.active_view(),
+        Some(ViewKind::Blob),
+        "Pressing Enter on a diff content row must open BlobView"
+    );
+    assert_eq!(app.views.blob_view.as_ref().unwrap().path(), "multi.rs");
+
+    // 4. Verify StageSplitChunk, StatusMerge, ToggleSortOrder, ToggleSortField set status messages
+    execute_action(&mut app, &Action::StageSplitChunk, 24);
+    assert!(
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("split")
+    );
+    execute_action(&mut app, &Action::StatusMerge, 24);
+    assert!(
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("conflict")
+    );
+    execute_action(&mut app, &Action::ToggleSortOrder, 24);
+    assert!(
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("Sorting")
+    );
+    execute_action(&mut app, &Action::ToggleSortField, 24);
+    assert!(
+        app.status_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("Sorting")
+    );
+}

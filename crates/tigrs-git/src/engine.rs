@@ -948,6 +948,22 @@ impl GitEngine {
         Ok(())
     }
 
+    /// Discards a single unstaged diff hunk in the working tree using raw path bytes.
+    pub fn discard_hunk_bytes(&self, raw_path: &[u8], hunk: &crate::diff::DiffHunk) -> Result<()> {
+        self.ensure_writable("discard_hunk")?;
+        crate::stage::discard_hunk_bytes(self.work_dir(), raw_path, hunk)?;
+        self.invalidator.bump_generation();
+        Ok(())
+    }
+
+    /// Discards a single unstaged diff hunk in the working tree.
+    pub fn discard_hunk(&self, path: &str, hunk: &crate::diff::DiffHunk) -> Result<()> {
+        self.ensure_writable("discard_hunk")?;
+        crate::stage::discard_hunk(self.work_dir(), path, hunk)?;
+        self.invalidator.bump_generation();
+        Ok(())
+    }
+
     /// Stages one or more lines within a hunk into the index using raw path bytes.
     pub fn stage_lines_bytes(
         &self,
@@ -2194,5 +2210,277 @@ mod tests {
             .discard_untracked_file("to_discard.txt")
             .expect("engine discard untracked in update mode");
         assert!(!path.join("to_discard.txt").exists());
+    }
+
+    #[test]
+    fn test_read_only_blocks_all_mutating_engine_methods() {
+        use std::ffi::OsStr;
+
+        let repo_dir = create_test_repo();
+        let path = repo_dir.path();
+        std::fs::write(path.join("tracked.txt"), "line1\nline2\n").unwrap();
+        let engine = GitEngine::open(Some(path)).expect("open");
+        engine.stage_file("tracked.txt", None).unwrap();
+        let status = Command::new("git")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(["commit", "-m", "add tracked"])
+            .current_dir(path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        std::fs::write(path.join("tracked.txt"), "line1\nline2_mod\n").unwrap();
+        std::fs::write(path.join("untracked.txt"), "new\n").unwrap();
+
+        let item = crate::status::StatusItem::new(
+            'M',
+            crate::status::StatusSection::Unstaged,
+            "tracked.txt",
+            None,
+        );
+        let diff = engine.compute_status_item_diff(&item).unwrap();
+        let hunk = &diff.files[0].hunks[0];
+
+        engine.set_read_only(true);
+        let cloned = engine.clone();
+        assert!(cloned.is_read_only());
+
+        let gen_before = engine.generation();
+
+        assert!(matches!(
+            engine.stage_file("tracked.txt", None),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.stage_file_os(OsStr::new("tracked.txt"), None),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.unstage_file("tracked.txt", None),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.unstage_file_os(OsStr::new("tracked.txt"), None),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.discard_file_changes("tracked.txt", None),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.discard_file_changes_os(OsStr::new("tracked.txt"), None),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.discard_untracked_file("untracked.txt"),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.discard_untracked_file_os(OsStr::new("untracked.txt")),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.stage_hunk("tracked.txt", hunk),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.stage_hunk_bytes(b"tracked.txt", hunk),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.unstage_hunk("tracked.txt", hunk),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.unstage_hunk_bytes(b"tracked.txt", hunk),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.stage_lines("tracked.txt", hunk, &[1]),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.stage_lines_bytes(b"tracked.txt", hunk, &[1]),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.unstage_lines("tracked.txt", hunk, &[1]),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.unstage_lines_bytes(b"tracked.txt", hunk, &[1]),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.stage_line("tracked.txt", hunk, 1),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            engine.unstage_line("tracked.txt", hunk, 1),
+            Err(TigError::ReadOnly(_))
+        ));
+        assert!(matches!(
+            cloned.stage_file("tracked.txt", None),
+            Err(TigError::ReadOnly(_))
+        ));
+
+        assert_eq!(
+            engine.generation(),
+            gen_before,
+            "blocked read-only calls must not bump generation"
+        );
+        assert!(path.join("untracked.txt").exists());
+    }
+
+    #[test]
+    fn test_engine_staging_wrappers_and_generation_bump() {
+        use std::ffi::OsStr;
+
+        let repo_dir = create_test_repo();
+        let path = repo_dir.path();
+        std::fs::write(path.join("work.txt"), "alpha\nbeta\ngamma\n").unwrap();
+
+        let mut engine = GitEngine::open(Some(path)).expect("open");
+        engine.set_memory_profile(tigrs_core::MemoryProfile::Balanced);
+        assert_eq!(engine.memory_profile(), tigrs_core::MemoryProfile::Balanced);
+
+        let g0 = engine.generation();
+        engine
+            .stage_file_os(OsStr::new("work.txt"), None)
+            .expect("stage_file_os");
+        assert!(engine.generation() > g0);
+
+        let status = Command::new("git")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(["commit", "-m", "commit work.txt"])
+            .current_dir(path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        engine.purge_caches().expect("purge_caches");
+
+        let head = engine.head_commit_id().unwrap();
+        let blob_at_commit = engine
+            .read_blob_at_commit_path(head, "work.txt")
+            .expect("read_blob_at_commit_path");
+        assert_eq!(blob_at_commit.lines.len(), 3);
+
+        let tree = engine.read_tree(head, "").expect("read_tree");
+        let work_entry = tree
+            .entries
+            .iter()
+            .find(|e| e.name == "work.txt")
+            .expect("work.txt entry");
+        let raw_lines = engine
+            .read_blob_raw_lines(work_entry.oid)
+            .expect("read_blob_raw_lines");
+        assert_eq!(raw_lines.len(), 3);
+        let raw_lines_cached = engine
+            .read_blob_raw_lines(work_entry.oid)
+            .expect("read_blob_raw_lines cached");
+        assert!(Arc::ptr_eq(&raw_lines, &raw_lines_cached));
+
+        assert!(engine.get_cached_blame(head, "work.txt").is_none());
+        let blame = engine.blame_file(head, "work.txt").expect("blame_file");
+        assert_eq!(blame.lines.len(), 3);
+        assert!(engine.get_cached_blame(head, "work.txt").is_some());
+
+        // Modify work.txt with two added lines and test stage_line / unstage_line / stage_hunk / unstage_hunk
+        std::fs::write(path.join("work.txt"), "alpha\nbeta_1\nbeta_2\ngamma\n").unwrap();
+        let unstaged_item = crate::status::StatusItem::new(
+            'M',
+            crate::status::StatusSection::Unstaged,
+            "work.txt",
+            None,
+        );
+        let staged_item = crate::status::StatusItem::new(
+            'M',
+            crate::status::StatusSection::Staged,
+            "work.txt",
+            None,
+        );
+
+        let diff1 = engine
+            .compute_status_item_diff_cancellable(&unstaged_item, &CancellationToken::none())
+            .unwrap();
+        let hunk1 = &diff1.files[0].hunks[0];
+        let add_idx = hunk1
+            .lines
+            .iter()
+            .position(|l| l.kind == crate::diff::DiffLineKind::Add)
+            .unwrap();
+
+        let g1 = engine.generation();
+        engine
+            .stage_line("work.txt", hunk1, add_idx)
+            .expect("stage_line");
+        assert!(engine.generation() > g1);
+
+        let staged_diff1 = engine.compute_status_item_diff(&staged_item).unwrap();
+        let staged_hunk1 = &staged_diff1.files[0].hunks[0];
+        let staged_add_idx = staged_hunk1
+            .lines
+            .iter()
+            .position(|l| l.kind == crate::diff::DiffLineKind::Add)
+            .unwrap();
+
+        let g2 = engine.generation();
+        engine
+            .unstage_line("work.txt", staged_hunk1, staged_add_idx)
+            .expect("unstage_line");
+        assert!(engine.generation() > g2);
+
+        // Now stage entire hunk via stage_hunk and unstage via unstage_hunk
+        let diff2 = engine.compute_status_item_diff(&unstaged_item).unwrap();
+        let g3 = engine.generation();
+        engine
+            .stage_hunk("work.txt", &diff2.files[0].hunks[0])
+            .expect("stage_hunk");
+        assert!(engine.generation() > g3);
+
+        let staged_diff2 = engine.compute_status_item_diff(&staged_item).unwrap();
+        let g4 = engine.generation();
+        engine
+            .unstage_hunk("work.txt", &staged_diff2.files[0].hunks[0])
+            .expect("unstage_hunk");
+        assert!(engine.generation() > g4);
+
+        // Also test stage_hunk_bytes, unstage_lines_bytes, unstage_hunk_bytes, discard_file_changes_os, discard_untracked_file_os
+        let diff3 = engine.compute_status_item_diff(&unstaged_item).unwrap();
+        engine
+            .stage_hunk_bytes(b"work.txt", &diff3.files[0].hunks[0])
+            .expect("stage_hunk_bytes");
+        let staged_diff3 = engine.compute_status_item_diff(&staged_item).unwrap();
+        let sh3 = &staged_diff3.files[0].hunks[0];
+        let first_add = sh3
+            .lines
+            .iter()
+            .position(|l| l.kind == crate::diff::DiffLineKind::Add)
+            .unwrap();
+        engine
+            .unstage_lines_bytes(b"work.txt", sh3, &[first_add])
+            .expect("unstage_lines_bytes");
+        let staged_diff4 = engine.compute_status_item_diff(&staged_item).unwrap();
+        engine
+            .unstage_hunk_bytes(b"work.txt", &staged_diff4.files[0].hunks[0])
+            .expect("unstage_hunk_bytes");
+
+        engine
+            .discard_file_changes_os(OsStr::new("work.txt"), None)
+            .expect("discard_file_changes_os");
+        assert_eq!(
+            std::fs::read_to_string(path.join("work.txt")).unwrap(),
+            "alpha\nbeta\ngamma\n"
+        );
+
+        std::fs::write(path.join("temp_untracked.txt"), "scratch\n").unwrap();
+        engine
+            .discard_untracked_file_os(OsStr::new("temp_untracked.txt"))
+            .expect("discard_untracked_file_os");
+        assert!(!path.join("temp_untracked.txt").exists());
     }
 }

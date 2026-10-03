@@ -659,3 +659,58 @@ Signed-off-by: Dave Maintainer <dave@example.com>",
         );
     }
 }
+
+#[test]
+fn test_differential_submodule_gitlink_160000_tree_and_diff() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    init_repo(d);
+
+    std::fs::write(d.join("README.md"), "# Root Repo\n").unwrap();
+    git_ok(d, &["add", "README.md"]);
+    let sub_oid_1 = "1111111111111111111111111111111111111111";
+    let sub_oid_2 = "2222222222222222222222222222222222222222";
+    git_ok(
+        d,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("160000,{sub_oid_1},vendor/submod"),
+        ],
+    );
+    git_ok(d, &["commit", "-m", "Add submodule gitlink"]);
+
+    git_ok(
+        d,
+        &[
+            "update-index",
+            "--cacheinfo",
+            &format!("160000,{sub_oid_2},vendor/submod"),
+        ],
+    );
+    git_ok(d, &["commit", "-m", "Bump submodule gitlink"]);
+
+    let engine = tigrs_git::GitEngine::open(Some(d)).expect("open repo");
+    let head = engine.head_commit_id().expect("head");
+
+    // 1. Tree listing at vendor/ must report EntryKind::Commit (mode 160000)
+    let tree = engine.read_tree(head, "vendor").expect("read vendor tree");
+    assert_eq!(tree.entries.len(), 1);
+    assert_eq!(tree.entries[0].name, "submod");
+    assert_eq!(tree.entries[0].kind, tigrs_git::TreeEntryKind::Commit);
+    assert_eq!(tree.entries[0].mode, 0o160_000);
+    assert_eq!(tree.entries[0].oid.to_hex().to_string(), sub_oid_2);
+
+    // 2. Commit diff on the submodule bump commit must emit `-Subproject commit <oid1>` / `+Subproject commit <oid2>`
+    let diff = engine
+        .compute_commit_diff(head)
+        .expect("diff submodule bump");
+    assert_eq!(diff.files.len(), 1);
+    assert_eq!(diff.files[0].path, "vendor/submod");
+    assert_eq!(diff.files[0].hunks.len(), 1);
+    let lines = &diff.files[0].hunks[0].lines;
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0].content, format!("Subproject commit {sub_oid_1}"));
+    assert_eq!(lines[1].content, format!("Subproject commit {sub_oid_2}"));
+}

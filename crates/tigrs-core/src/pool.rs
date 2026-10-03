@@ -163,6 +163,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "loom"))]
     fn test_send_or_yield_non_blocking_with_cancellation() {
         let pool = ComputePool::new(1).expect("Must create 1-thread pool");
         let (tx, rx) = crossbeam_channel::bounded::<usize>(2);
