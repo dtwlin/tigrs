@@ -395,7 +395,7 @@ mod tests {
         assert!(default_buf.is_empty());
         assert_eq!(default_buf.len(), 0);
         assert_eq!(default_buf.as_str(), "");
-        assert!(default_buf.to_vec().is_empty());
+        assert_eq!(default_buf.to_vec(), Vec::<String>::new());
 
         let (is_bin_empty, empty_raw) = LineBuffer::from_raw_bytes(b"");
         assert!(!is_bin_empty);

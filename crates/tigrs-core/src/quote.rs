@@ -1312,7 +1312,7 @@ mod tests {
 
         // Empty string
         let words = split_shell_words("").unwrap();
-        assert!(words.is_empty());
+        assert_eq!(words, Vec::<String>::new());
 
         // Error cases: unclosed single quote
         assert!(split_shell_words("git log 'unclosed").is_err());
